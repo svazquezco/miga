@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+coverage/
+.artifacts/
+test-results/
+.env
+.env.*
+!.env.example
+
+.idea/
+
+# Claude local files; keep shared settings tracked
+.claude/*
+!.claude/settings.json
+CLAUDE.local.md

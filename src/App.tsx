@@ -1,0 +1,322 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  Home as HomeIcon,
+  BookOpen,
+  Sparkles,
+  Calculator as CalculatorIcon,
+  ChartNoAxesCombined,
+  Settings as SettingsIcon,
+  Leaf,
+  HardDrive,
+  Check,
+  Menu,
+  X,
+  Download,
+} from 'lucide-react';
+import { Home } from './pages/Home';
+import { Guide } from './pages/Guide';
+import { Assistant } from './pages/Assistant';
+import { Calculator } from './pages/Calculator';
+import { History } from './pages/History';
+import { Settings } from './pages/Settings';
+import { BrandMark } from './components/Illustrations';
+import { FeedingModal } from './components/FeedingModal';
+import { Notice } from './components/UI';
+import { loadData, saveData, STORAGE_KEY, browserStorage } from './storage/local';
+import type { AppData } from './domain/starter';
+import type { Page, FeedRequest } from './types';
+interface InstallPrompt extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: string }>;
+}
+const links: { id: Page; label: string; icon: typeof HomeIcon }[] = [
+  { id: 'home', label: 'Mi masa madre', icon: HomeIcon },
+  { id: 'guide', label: 'La guía', icon: BookOpen },
+  { id: 'assistant', label: 'Asistente Miga', icon: Sparkles },
+  { id: 'calculator', label: 'Calculadora', icon: CalculatorIcon },
+  { id: 'history', label: 'Mi historial', icon: ChartNoAxesCombined },
+];
+const parsePage = (): Page => {
+  const raw = location.hash.slice(1).split('/')[0];
+  return [...links.map((l) => l.id), 'settings'].includes(raw) ? (raw as Page) : 'home';
+};
+export default function App() {
+  const [loaded] = useState(() => loadData(browserStorage));
+  const [data, setData] = useState(loaded.data);
+  const [storageError, setStorageError] = useState(loaded.error);
+  const [page, setPage] = useState<Page>(parsePage);
+  const [routeKey, setRouteKey] = useState(location.hash);
+  const [menu, setMenu] = useState(false);
+  const [toast, setToast] = useState('');
+  const [feed, setFeed] = useState<FeedRequest | null>(null);
+  const [install, setInstall] = useState<InstallPrompt | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  useEffect(() => {
+    const change = () => {
+      setPage(parsePage());
+      setRouteKey(location.hash);
+      setMenu(false);
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener('hashchange', change);
+    return () => window.removeEventListener('hashchange', change);
+  }, []);
+  useEffect(() => {
+    const handle = (event: Event) => {
+      event.preventDefault();
+      setInstall(event as InstallPrompt);
+    };
+    window.addEventListener('beforeinstallprompt', handle);
+    return () => window.removeEventListener('beforeinstallprompt', handle);
+  }, []);
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    const sync = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY) {
+        const fresh = loadData(browserStorage);
+        setStorageError(fresh.error);
+        if (!fresh.error) setData(fresh.data);
+      }
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
+  useEffect(() => {
+    document.title = `Miga · ${page === 'settings' ? 'Tu cultivo' : links.find((l) => l.id === page)?.label}`;
+  }, [page]);
+  function navigate(next: Page) {
+    if (location.hash === `#${next}`) {
+      setPage(next);
+      window.scrollTo({ top: 0 });
+    } else location.hash = next;
+  }
+  function notify(message: string) {
+    setToast(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 5500);
+  }
+  function update(next: AppData) {
+    if (storageError) {
+      notify(
+        'El guardado está bloqueado para proteger la copia local que no se pudo leer. Descárgala desde ajustes.',
+      );
+      return;
+    }
+    const ok = saveData(browserStorage, next);
+    setData(next);
+    setSaveFailed(!ok);
+    if (!ok) notify('No se ha podido guardar en el navegador. Descarga una copia antes de cerrar.');
+  }
+  function exportData() {
+    let raw: string;
+    if (storageError) {
+      try {
+        raw = localStorage.getItem(STORAGE_KEY) ?? JSON.stringify(data);
+      } catch {
+        raw = JSON.stringify(data);
+      }
+    } else raw = JSON.stringify(data, null, 2);
+    const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `miga-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify('Copia descargada. Guárdala en un lugar seguro.');
+  }
+  async function installApp() {
+    if (!install) return;
+    await install.prompt();
+    await install.userChoice;
+    setInstall(null);
+  }
+  const props = { data, update, navigate, notify };
+  return (
+    <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Saltar al contenido
+      </a>
+      <aside className={`sidebar ${menu ? 'open' : ''}`}>
+        <a href="#home" className="brand" aria-label="Miga, inicio">
+          <BrandMark />
+          <span>
+            Miga<span className="brand-dot">.</span>
+          </span>
+        </a>
+        <p className="brand-caption">Tu masa madre, siempre lista.</p>
+        <nav aria-label="Navegación principal">
+          <span className="nav-caption">UN POQUITO CADA DÍA</span>
+          {links.map((l) => (
+            <a
+              key={l.id}
+              href={`#${l.id}`}
+              className={page === l.id ? 'active' : ''}
+              aria-current={page === l.id ? 'page' : undefined}
+            >
+              <l.icon size={20} />
+              <span>{l.label}</span>
+              {page === l.id && <span className="nav-active-dot" />}
+            </a>
+          ))}
+        </nav>
+        <div className="sidebar-note">
+          <span className="plant-art">
+            <Leaf size={38} />
+          </span>
+          <p>
+            Las cosas buenas
+            <br />
+            necesitan su tiempo.
+          </p>
+          <span>Y un poquito de harina.</span>
+        </div>
+        <div className="sidebar-bottom">
+          <a href="#settings" className={page === 'settings' ? 'active' : ''}>
+            <SettingsIcon size={18} />
+            Mi cultivo y ajustes
+          </a>
+          <span>
+            <HardDrive size={14} />
+            Solo en tu dispositivo
+          </span>
+        </div>
+      </aside>
+      <div className="main-shell">
+        <header className="topbar">
+          <a href="#home" className="mobile-brand">
+            <BrandMark />
+            Miga.
+          </a>
+          <div className="breadcrumb">
+            Tu pequeño rincón de panadería <span>/</span>{' '}
+            <strong>
+              {page === 'settings' ? 'Mi cultivo' : links.find((l) => l.id === page)?.label}
+            </strong>
+          </div>
+          <div className="topbar-right">
+            <a className="avatar" href="#settings" aria-label="Configurar mi cultivo">
+              <SproutIcon />
+            </a>
+            <button
+              className="icon-button mobile-menu"
+              aria-label={menu ? 'Cerrar menú' : 'Abrir menú'}
+              onClick={() => setMenu(!menu)}
+            >
+              {menu ? <X /> : <Menu />}
+            </button>
+          </div>
+        </header>
+        <main id="main-content" tabIndex={-1}>
+          {storageError && (
+            <div className="storage-banner">
+              <Notice danger>
+                {storageError}{' '}
+                <button className="text-button" onClick={exportData}>
+                  <Download size={16} />
+                  Descargar copia original
+                </button>
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        '¿Has descargado la copia? Continuar reemplazará los datos locales ilegibles con un cultivo nuevo.',
+                      )
+                    ) {
+                      setStorageError(null);
+                      saveData(browserStorage, data);
+                    }
+                  }}
+                >
+                  Continuar con datos nuevos
+                </button>
+              </Notice>
+            </div>
+          )}
+          {saveFailed && (
+            <Notice danger>
+              Hay cambios sin guardar en el navegador.{' '}
+              <button className="text-button" onClick={exportData}>
+                Descargar copia
+              </button>
+              <button
+                className="text-button"
+                onClick={() => {
+                  const ok = saveData(browserStorage, data);
+                  setSaveFailed(!ok);
+                  notify(
+                    ok ? 'Cambios guardados.' : 'El navegador sigue sin permitir el guardado.',
+                  );
+                }}
+              >
+                Reintentar guardado
+              </button>
+            </Notice>
+          )}
+          {page === 'home' && <Home {...props} />}
+          {page === 'guide' && <Guide key={routeKey} {...props} />}
+          {page === 'assistant' && <Assistant {...props} onFeed={setFeed} />}
+          {page === 'calculator' && <Calculator {...props} onFeed={setFeed} />}
+          {page === 'history' && <History key={routeKey} {...props} />}
+          {page === 'settings' && (
+            <Settings
+              {...props}
+              onExport={exportData}
+              onInstall={() => void installApp()}
+              canInstall={!!install}
+            />
+          )}
+        </main>
+        <footer className="site-footer">
+          <span className="footer-brand">
+            <BrandMark />
+            Miga
+          </span>
+          <span>Hecho para cuidar lo que crece.</span>
+          <span>Sin prisas. Sin conexión con servidores.</span>
+        </footer>
+      </div>
+      <nav className="mobile-bottom-nav" aria-label="Navegación móvil">
+        {links
+          .filter((l) => l.id !== 'calculator')
+          .map((l) => (
+            <a
+              key={l.id}
+              href={`#${l.id}`}
+              className={page === l.id ? 'active' : ''}
+              aria-current={page === l.id ? 'page' : undefined}
+            >
+              <l.icon size={21} />
+              <span>
+                {l.id === 'home'
+                  ? 'Inicio'
+                  : l.id === 'assistant'
+                    ? 'Miga'
+                    : l.id === 'guide'
+                      ? 'Guía'
+                      : 'Historial'}
+              </span>
+            </a>
+          ))}
+      </nav>
+      {feed && <FeedingModal {...props} request={feed} onClose={() => setFeed(null)} />}
+      <div className={`toast ${toast ? 'visible' : ''}`} role="status">
+        {toast && (
+          <>
+            <Check size={18} />
+            {toast}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+function SproutIcon() {
+  return <Leaf size={20} />;
+}
