@@ -4,6 +4,7 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -25,6 +26,22 @@ jobs:
         with:
           node-version-file: .nvmrc
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - name: Check release version
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+
+          const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          const tag = process.env.RELEASE_TAG;
+          const stableVersion = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+          if (!stableVersion.test(version) || tag !== `v${version}`) {
+            console.error('The release tag must match the stable version in package.json.');
+            process.exitCode = 1;
+          }
+          JS
       - run: pnpm install --frozen-lockfile
       - run: pnpm run format:check
       - run: pnpm test
@@ -38,23 +55,7 @@ jobs:
           retention-days: 7
 
       - name: Package GitHub Pages site
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.event_name == 'release'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: dist/
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: quality
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - name: Publish site
-        id: deploy
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

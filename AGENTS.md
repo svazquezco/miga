@@ -24,3 +24,4 @@ standards before changing their scoped content:
 - Keep shared domain logic in `src/domain/starter.ts`. Both the guide and the assistant use this module.
 - Bundle assets and fonts locally. Do not use external APIs or analytics.
 - Preserve unreadable stored data until the user explicitly chooses to replace it.
+- Release Please may use its generated branch names for release pull requests.

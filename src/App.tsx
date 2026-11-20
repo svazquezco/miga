@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { version } from '../package.json';
 import {
   Home as HomeIcon,
   BookOpen,
@@ -276,7 +277,7 @@ export default function App() {
         <footer className="site-footer">
           <span className="footer-brand">
             <BrandMark />
-            Miga
+            Miga · v{version}
           </span>
           <span>Hecho para cuidar lo que crece.</span>
           <span>Sin prisas. Sin conexión con servidores.</span>
