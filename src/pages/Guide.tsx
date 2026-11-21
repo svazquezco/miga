@@ -26,10 +26,10 @@ import {
 import type { Protocol, FeedingPace } from '../domain/starter';
 import type { PageProps } from '../types';
 const topics = [
-  ['flow', 'El camino del refresco'],
-  ['basics', 'Antes de empezar'],
-  ['activity', 'Leer las señales'],
-  ['care', 'Mantenimiento y pan'],
+  ['flow', 'Refrescar'],
+  ['basics', 'Proporciones'],
+  ['activity', 'Señales del cultivo'],
+  ['care', 'Conservar y hornear'],
 ];
 export function Guide({ navigate }: PageProps) {
   const initial = location.hash.split('/')[1];
@@ -45,10 +45,10 @@ export function Guide({ navigate }: PageProps) {
   };
   return (
     <>
-      <PageTitle eyebrow="ENTENDER PARA CUIDAR" title="Un tarro. Un pequeño mundo.">
-        La guía para refrescar con confianza, paso a paso.
+      <PageTitle eyebrow="ENTENDER PARA CUIDAR" title="Guía de la masa madre">
+        Elige qué quieres consultar sobre tu masa madre.
       </PageTitle>
-      <div className="tab-bar" role="tablist" aria-label="Secciones de la guía">
+      <div className="tab-bar guide-topics" role="tablist" aria-label="Secciones de la guía">
         {topics.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={topic === id} onClick={() => choose(id)}>
             {label}
