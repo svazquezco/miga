@@ -24,3 +24,9 @@ Open the URL printed by Vite. No account or environment variables are needed.
 - [GitHub Pages deployment](docs/deployment.md)
 - [Agent guidance](AGENTS.md)
 - [Engineering standards v3.0.1](https://github.com/svazquezco/engineering-standards/tree/v3.0.1)
+
+## License
+
+Miga's original code is licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). Third-party components retain
+their own licenses.
