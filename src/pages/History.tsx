@@ -51,7 +51,7 @@ export function History({ data, update, notify, navigate }: PageProps) {
     pink: 'Color rosa o naranja',
     rotten: 'Olor putrefacto',
   };
-  function save(e: React.SubmitEvent<HTMLFormElement>) {
+  async function save(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     const time = new Date(observedAt).getTime();
     if (!Number.isFinite(time) || time > Date.now()) {
@@ -65,25 +65,23 @@ export function History({ data, update, notify, navigate }: PageProps) {
       setError('El crecimiento y el tiempo al pico deben ser números no negativos.');
       return;
     }
-    update({
-      ...data,
-      observations: [
-        {
-          id: crypto.randomUUID(),
-          observedAt: new Date(observedAt).toISOString(),
-          activity,
-          safety,
-          rise: rise === '' ? null : Number(rise),
-          peakHours: peakHours === '' ? null : Number(peakHours),
-          bubbles,
-          aroma,
-          notes,
-        },
-        ...data.observations,
-      ].sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt)),
+    const result = await update({
+      type: 'observation',
+      observation: {
+        id: crypto.randomUUID(),
+        observedAt: new Date(observedAt).toISOString(),
+        activity,
+        safety,
+        rise: rise === '' ? null : Number(rise),
+        peakHours: peakHours === '' ? null : Number(peakHours),
+        bubbles,
+        aroma,
+        notes,
+      },
     });
+    if (result === 'blocked') return;
     setOpen(false);
-    notify('Observación guardada.');
+    if (result === 'saved') notify('Observación guardada.');
   }
   return (
     <>

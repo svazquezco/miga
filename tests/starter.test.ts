@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyJournalChange,
   calculate,
+  createData,
   displayedAmounts,
   elapsedHours,
   recommend,
   selectProtocol,
 } from '../src/domain/starter';
-import type { DecisionInput, Safety, StoragePlace } from '../src/domain/starter';
+import type { AppData, DecisionInput, Feeding, Safety, StoragePlace } from '../src/domain/starter';
 const input: DecisionInput = {
   storage: 'fridge',
   elapsedHours: 120,
@@ -143,5 +145,65 @@ describe('elapsed time validation', () => {
   it('rejects future and invalid dates', () => {
     expect(() => elapsedHours('2026-11-21T12:00:00Z', now)).toThrow();
     expect(() => elapsedHours('', now)).toThrow();
+  });
+});
+
+describe('journal actions', () => {
+  const fedAt = '2026-11-20T12:00:00.000Z';
+  const data: AppData = {
+    ...createData(new Date(fedAt)),
+    recovery: { goal: 'bake', stage: 'feed', confirmations: 1 },
+  };
+  const feeding: Feeding = {
+    fedAt,
+    id: 'refresh',
+    ratio: 1,
+    starterG: 20,
+    waterG: 20,
+    flourG: 20,
+    temperature: 24,
+    storage: 'room',
+    notes: '',
+  };
+
+  it('breaks the recovery streak after an intervening feeding', () => {
+    const interrupted = applyJournalChange(data, { type: 'feeding', feeding });
+    expect(interrupted.recovery).toEqual({ goal: 'bake', stage: 'feed', confirmations: 0 });
+    const resumed = applyJournalChange(interrupted, {
+      type: 'feeding',
+      recoveryStage: 'feed',
+      feeding: { ...feeding, id: 'next', fedAt: '2026-11-20T16:00:00.000Z' },
+    });
+    expect(resumed.recovery).toEqual({
+      goal: 'bake',
+      stage: 'observe',
+      feedingId: 'next',
+      confirmations: 0,
+    });
+  });
+
+  it('keeps a recovery confirmation when logging an older feeding', () => {
+    const newer = { ...data, starter: { ...data.starter, lastFedAt: '2026-11-20T16:00:00.000Z' } };
+    expect(applyJournalChange(newer, { type: 'feeding', feeding }).recovery).toEqual(data.recovery);
+  });
+
+  it('preserves the starter details when recording an observation', () => {
+    const fed = applyJournalChange(data, { type: 'feeding', feeding });
+    const observed = applyJournalChange(fed, {
+      type: 'observation',
+      observation: {
+        id: 'check',
+        observedAt: '2026-11-20T13:00:00.000Z',
+        safety: 'healthy',
+        activity: 'rising',
+        rise: null,
+        bubbles: true,
+        aroma: '',
+        peakHours: null,
+        notes: '',
+      },
+    });
+    expect(observed.starter).toEqual(fed.starter);
+    expect(observed.observations.map((entry) => entry.id)).toEqual(['check']);
   });
 });

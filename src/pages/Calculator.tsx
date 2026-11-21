@@ -9,7 +9,7 @@ import {
   Scale,
 } from 'lucide-react';
 import { PageTitle, Notice, grams } from '../components/UI';
-import { displayedAmounts, isContaminated, peakTimeAt24C } from '../domain/starter';
+import { displayedAmounts, feedingBlock, peakTimeAt24C } from '../domain/starter';
 import type { Ratio } from '../domain/starter';
 import type { PageProps, FeedRequest } from '../types';
 export function Calculator({
@@ -32,8 +32,7 @@ export function Calculator({
     }
   }
   const tooSmall = amounts && [amounts.starter, amounts.water, amounts.flour].some((n) => n <= 0);
-  const blocked =
-    data.starter.hydration !== 100 || data.observations.some((o) => isContaminated(o.safety));
+  const { blocked } = feedingBlock(data);
   async function copy() {
     if (!amounts) return;
     const text = `Refresco 1:${ratio}:${ratio} (cultivo : agua : harina)\nCultivo: ${grams(amounts.starter)} g\nAgua: ${grams(amounts.water)} g\nHarina: ${grams(amounts.flour)} g\nTotal: ${grams(amounts.total)} g (reserva: ${reserve} g)`;

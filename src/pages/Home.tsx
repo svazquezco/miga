@@ -5,7 +5,7 @@ import { Jar, Miga } from '../components/Illustrations';
 import { dateLabel, inputDate, Modal } from '../components/UI';
 import {
   atRoomSinceFeeding,
-  isContaminated,
+  feedingBlock,
   latestBakingFeeding,
   latestFeeding,
 } from '../domain/starter';
@@ -28,7 +28,7 @@ export function Home({ data, navigate, update }: PageProps) {
     (entry) =>
       Math.floor(Date.parse(entry.observedAt) / 60_000) >= Math.floor(trackingSince / 60_000),
   );
-  const unsafe = data.observations.some((entry) => isContaminated(entry.safety));
+  const unsafe = Boolean(feedingBlock(data).contamination);
   const knownLocation = Boolean(movedAt || latest);
   const inFridge = knownLocation && data.starter.storage === 'fridge';
   const fermenting = latest && atRoomSinceFeeding(data.starter, latest);
@@ -61,9 +61,9 @@ export function Home({ data, navigate, update }: PageProps) {
         : movedAt;
 
   function changeStorage(storage: StoragePlace) {
-    update({
-      ...data,
-      starter: { ...data.starter, storage, storageChangedAt: new Date().toISOString() },
+    void update({
+      type: 'starter',
+      changes: { storage, storageChangedAt: new Date().toISOString() },
     });
   }
   return (
@@ -261,7 +261,7 @@ function EditCultivation({
   const [error, setError] = useState('');
   const initialDate = initial.lastFedAt ? inputDate(new Date(initial.lastFedAt)) : '';
 
-  function save(event: SubmitEvent<HTMLFormElement>) {
+  async function save(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     const fields = new FormData(event.currentTarget);
     const name = String(fields.get('name')).trim();
@@ -279,14 +279,14 @@ function EditCultivation({
       }
       lastFedAt = date ? new Date(time).toISOString() : null;
     }
-    update({
-      ...data,
-      starter: {
-        ...data.starter,
-        name: name === initial.name ? data.starter.name : name,
-        lastFedAt,
+    const result = await update({
+      type: 'starter',
+      changes: {
+        ...(name !== initial.name && { name }),
+        ...(date !== initialDate && { lastFedAt }),
       },
     });
+    if (result === 'blocked') return;
     onClose();
   }
 
