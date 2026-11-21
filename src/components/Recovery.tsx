@@ -41,14 +41,14 @@ export function Recovery({
     });
   }
 
-  function recordGrowth(doubled: boolean) {
+  async function recordGrowth(doubled: boolean) {
     const passes = cycle?.ratio === 1 && doubled;
     if (passes && plan.confirmations === 1) {
-      if (update({ ...data, recovery: undefined }) !== 'blocked') onComplete(plan.goal);
+      if ((await update({ type: 'recovery' })) !== 'blocked') onComplete(plan.goal);
       return;
     }
-    update({
-      ...data,
+    await update({
+      type: 'recovery',
       recovery: { goal: plan.goal, stage: 'feed', confirmations: passes ? 1 : 0 },
     });
   }

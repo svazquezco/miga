@@ -19,10 +19,11 @@ import {
   bakingGrowthGuidance,
   recommend,
   elapsedHours,
+  feedingBlock,
   isContaminated,
   latestBakingFeeding,
 } from '../domain/starter';
-import type { Activity, AppData, Safety, Goal, StoragePlace, FeedingPace } from '../domain/starter';
+import type { Activity, Safety, Goal, StoragePlace, FeedingPace } from '../domain/starter';
 import { Calculator } from './Calculator';
 import { FeedingModal } from '../components/FeedingModal';
 import { Recovery } from '../components/Recovery';
@@ -39,8 +40,8 @@ export function Assistant({
     : location.hash.endsWith('/maintain')
       ? 'maintain'
       : null;
-  const recordedSafety = data.observations.find((o) => isContaminated(o.safety))?.safety;
-  const bakingSupported = data.starter.hydration === 100 && !recordedSafety;
+  const { contamination: recordedSafety, blocked } = feedingBlock(data);
+  const bakingSupported = !blocked;
   const bakingFeeding = bakingSupported ? latestBakingFeeding(data) : undefined;
   const resume = initialGoal !== 'maintain' && !data.recovery ? bakingFeeding : undefined;
   const startingStep = initialGoal ? 0 : 3;
@@ -173,7 +174,7 @@ export function Assistant({
         setStep(7);
         return;
       }
-      update({ ...data, recovery: { goal, stage: 'start', confirmations: 0 } });
+      void update({ type: 'recovery', recovery: { goal, stage: 'start', confirmations: 0 } });
       return;
     }
     const invalidDate = afterDate ? dateError() : '';
@@ -209,20 +210,14 @@ export function Assistant({
     goTo(steps[stepIndex + 1] ?? 7);
   }
 
-  function finishBakingCheck(): AppData['feedings'] {
-    return goal === 'bake' && bakingFeeding && bakingFeeding.id === bakingSession?.id
-      ? data.feedings.map((feeding) =>
-          feeding.id === bakingFeeding.id ? { ...feeding, bakingCheck: undefined } : feeding,
-        )
-      : data.feedings;
-  }
+  const checkedFeedingId =
+    goal === 'bake' && bakingFeeding?.id === bakingSession?.id ? bakingFeeding?.id : undefined;
 
-  function reset() {
+  async function reset() {
     if (data.recovery || (bakingFeeding && goal === 'bake')) {
-      const saveResult = update({
-        ...data,
-        recovery: undefined,
-        feedings: finishBakingCheck(),
+      const saveResult = await update({
+        type: 'recovery',
+        checkedFeedingId,
       });
       if (saveResult === 'blocked') return;
     }
@@ -236,41 +231,26 @@ export function Assistant({
     setError('');
     setSkipCalculation(false);
   }
-  function saveObservation() {
+  async function saveObservation() {
     if (saved || (!lastFed && result.kind !== 'discard')) return;
-    const saveResult = update({
-      ...data,
-      starter:
-        result.kind === 'discard' ||
-        observedBakingFeeding ||
-        (bakingSession && bakingSession.id !== bakingFeeding?.id)
-          ? data.starter
-          : {
-              ...data.starter,
-              storage: data.starter.storageChangedAt ? data.starter.storage : storage,
-              temperature: Number(temperature),
-              lastFedAt: new Date(lastFed).toISOString(),
-            },
-      feedings: finishBakingCheck(),
-      observations: [
-        {
-          id: crypto.randomUUID(),
-          observedAt: new Date().toISOString(),
-          safety: effectiveSafety,
-          activity: result.kind === 'discard' ? 'unknown' : (activity ?? 'unknown'),
-          rise: null,
-          bubbles: activity === 'peak' || activity === 'rising',
-          aroma: safety === 'rotten' ? 'Putrefacto' : '',
-          peakHours: null,
-          notes: 'Observación registrada con Miga.',
-        },
-        ...data.observations,
-      ],
+    const saveResult = await update({
+      type: 'observation',
+      checkedFeedingId,
+      observation: {
+        id: crypto.randomUUID(),
+        observedAt: new Date().toISOString(),
+        safety: effectiveSafety,
+        activity: result.kind === 'discard' ? 'unknown' : (activity ?? 'unknown'),
+        rise: null,
+        bubbles: activity === 'peak' || activity === 'rising',
+        aroma: effectiveSafety === 'rotten' ? 'Putrefacto' : '',
+        peakHours: null,
+        notes: 'Observación registrada con Miga.',
+      },
     });
     if (saveResult === 'blocked') return;
     setSaved(true);
-    if (saveResult === 'saved')
-      notify('Punto de partida y observación guardados en este navegador.');
+    if (saveResult === 'saved') notify('Observación guardada.');
   }
   if (data.recovery && bakingSupported) {
     return (
@@ -698,7 +678,6 @@ export function Assistant({
                       className="primary"
                       disabled={data.starter.hydration !== 100}
                       onClick={() => {
-                        saveObservation();
                         const n = result.protocol!.ratio;
                         onFeed({ ratio: n, starterG: 20, waterG: 20 * n, flourG: 20 * n });
                       }}

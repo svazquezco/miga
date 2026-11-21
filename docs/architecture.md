@@ -2,15 +2,8 @@
 
 Miga is a browser-only PWA built with React, TypeScript, and Vite. Fonts and assets ship with the app.
 
-## Structure
-
-- `src/App.tsx` manages hash navigation, application state, and updates across tabs.
-- `src/pages/` contains screens. `src/components/` contains shared UI elements.
-- `src/domain/starter.ts` contains the domain logic shared by the guide, assistant, and calculator.
-- `src/storage/local.ts` validates and persists data in localStorage under `miga:starter:v1`.
-
-## Storage and offline use
-
-The storage layer blocks writes when saved data is unreadable or uses a newer schema. If storage is full, the app keeps changes in memory for retry or export.
-
-`public/manifest.webmanifest` defines installation metadata. In production, `public/sw.js` tries the network first for navigation and serves cached HTML offline. It checks the cache first for assets.
+- `src/App.tsx` handles hash navigation and connects screens to the journal.
+- `src/pages/` contains screens. `src/components/` contains shared UI.
+- `src/domain/starter.ts` contains journal actions, recommendations, and calculations.
+- `src/storage/local.ts` validates and persists the journal under `miga:starter:v1`. It protects unreadable data and keeps failed saves in memory. If another tab changes the saved copy, retry is blocked and the draft stays available to export.
+- `public/sw.js` caches the production app for offline use.
