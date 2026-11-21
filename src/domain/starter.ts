@@ -10,6 +10,7 @@ export interface Starter {
   hydration: number;
   flour: string;
   storage: StoragePlace;
+  storageChangedAt?: string;
   temperature: number;
   lastFedAt: string | null;
   createdAt: string;
@@ -24,6 +25,7 @@ export interface Feeding {
   temperature: number;
   storage: StoragePlace;
   notes: string;
+  bakingCheck?: { at: string; safety: Extract<Safety, 'healthy' | 'hooch'> };
 }
 export interface Observation {
   id: string;
@@ -36,9 +38,13 @@ export interface Observation {
   peakHours: number | null;
   notes: string;
 }
+export type Recovery = { goal: Goal; confirmations: 0 | 1 } & (
+  { stage: 'start' | 'feed' } | { stage: 'observe'; feedingId: string }
+);
 export interface AppData {
   version: 1;
   starter: Starter;
+  recovery?: Recovery;
   feedings: Feeding[];
   observations: Observation[];
 }
@@ -64,6 +70,28 @@ export interface Protocol {
 }
 export const bakingReadinessGuidance =
   'Antes de hornear, comprueba un crecimiento vigoroso y repetible, aproximadamente el doble de volumen, con abundantes burbujas. Úsala cerca de su pico: el tiempo depende de la proporción, la temperatura y la actividad del cultivo.';
+export const bakingGrowthGuidance: Record<Activity, { title: string; text: string }> = {
+  quiet: {
+    title: 'Dale más tiempo',
+    text: 'Marca el nivel, comprueba la temperatura y vuelve a mirar si empieza a subir. Evita encadenar refrescos si todavía no ves fermentación.',
+  },
+  rising: {
+    title: 'Deja que siga creciendo',
+    text: 'Espera a que alcance su mayor altura y comprueba que el crecimiento sea vigoroso y haya abundantes burbujas.',
+  },
+  peak: {
+    title: 'Comprueba su fuerza antes de hacer pan',
+    text: bakingReadinessGuidance,
+  },
+  fallen: {
+    title: 'Ya ha pasado su pico',
+    text: 'Si necesitas masa madre en su pico para el pan, planifica otro refresco y marca el nivel para seguir la subida.',
+  },
+  unknown: {
+    title: 'Marca el nivel y vuelve a mirar',
+    text: 'Observa cuánto sube y si aparecen burbujas para saber cómo va este refresco.',
+  },
+};
 export const peakTimeReferences = [
   { ratio: 1, peak: 'Unas 4–6 h', doubling: 'En el ejemplo había duplicado alrededor de las 4 h.' },
   {
@@ -74,6 +102,35 @@ export const peakTimeReferences = [
   },
 ] as const;
 
+export const peakTimeAt24C = {
+  1: { label: '4–6 h', checkAfterHours: 4 },
+  2: { label: '5–6 h', checkAfterHours: 5 },
+  3: { label: '6½–9 h', checkAfterHours: 6.5 },
+  5: { label: 'unas 10 h', checkAfterHours: 10 },
+} satisfies Record<Ratio, { label: string; checkAfterHours: number }>;
+
+export function bakingCheckAt(fedAt: string, ratio: Ratio, active: boolean): string {
+  const hours = active ? peakTimeAt24C[ratio].checkAfterHours : 12;
+  return new Date(Date.parse(fedAt) + hours * 3_600_000).toISOString();
+}
+
+export function latestFeeding(data: AppData) {
+  return data.feedings.find((feeding) => feeding.fedAt === data.starter.lastFedAt);
+}
+
+export function atRoomSinceFeeding(starter: Starter, feeding: Feeding) {
+  return (
+    starter.storage === 'room' &&
+    feeding.storage === 'room' &&
+    (!starter.storageChangedAt || Date.parse(starter.storageChangedAt) <= Date.parse(feeding.fedAt))
+  );
+}
+
+export function latestBakingFeeding(data: AppData) {
+  const latest = latestFeeding(data);
+  return latest?.bakingCheck && atRoomSinceFeeding(data.starter, latest) ? latest : undefined;
+}
+
 export const fridgeProtocols: Protocol[] = [
   {
     id: 'fridge-3',
@@ -82,7 +139,8 @@ export const fridgeProtocols: Protocol[] = [
     ratio: 2,
     cycles: '1 refresco orientativo',
     duration: '6–12 h orientativas',
-    description: 'Un descanso corto en frío. Observa cómo responde al volver a alimentarla.',
+    description:
+      'Si ha pasado pocos días en la nevera, dale un refresco a temperatura ambiente y observa si vuelve a subir y formar burbujas.',
     steps: [
       'Comprueba el aspecto y el olor.',
       'Mezcla 20 g de cultivo, 40 g de agua y 40 g de harina en un tarro limpio.',

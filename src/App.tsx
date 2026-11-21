@@ -25,7 +25,7 @@ import { FeedingModal } from './components/FeedingModal';
 import { Notice } from './components/UI';
 import { loadData, saveData, STORAGE_KEY, browserStorage } from './storage/local';
 import type { AppData } from './domain/starter';
-import type { Page, FeedRequest } from './types';
+import type { Page, PageProps, FeedRequest } from './types';
 interface InstallPrompt extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: string }>;
@@ -102,17 +102,18 @@ export default function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 5500);
   }
-  function update(next: AppData) {
+  function update(next: AppData): ReturnType<PageProps['update']> {
     if (storageError) {
       notify(
         'El guardado está bloqueado para proteger la copia local que no se pudo leer. Descárgala desde ajustes.',
       );
-      return;
+      return 'blocked';
     }
     const ok = saveData(browserStorage, next);
     setData(next);
     setSaveFailed(!ok);
     if (!ok) notify('No se ha podido guardar en el navegador. Descarga una copia antes de cerrar.');
+    return ok ? 'saved' : 'memory';
   }
   function exportData() {
     let raw: string;
@@ -152,7 +153,6 @@ export default function App() {
         </a>
         <p className="brand-caption">Tu masa madre, siempre lista.</p>
         <nav aria-label="Navegación principal">
-          <span className="nav-caption">UN POQUITO CADA DÍA</span>
           {links.map((l) => (
             <a
               key={l.id}
@@ -180,11 +180,11 @@ export default function App() {
         <div className="sidebar-bottom">
           <a href="#settings" className={page === 'settings' ? 'active' : ''}>
             <SettingsIcon size={18} />
-            Mi cultivo y ajustes
+            Ajustes
           </a>
           <span>
             <HardDrive size={14} />
-            Solo en tu dispositivo
+            Datos guardados en tu dispositivo
           </span>
         </div>
       </aside>
@@ -262,7 +262,7 @@ export default function App() {
           )}
           {page === 'home' && <Home {...props} />}
           {page === 'guide' && <Guide key={routeKey} {...props} />}
-          {page === 'assistant' && <Assistant {...props} onFeed={setFeed} />}
+          {page === 'assistant' && <Assistant key={routeKey} {...props} onFeed={setFeed} />}
           {page === 'calculator' && <Calculator {...props} onFeed={setFeed} />}
           {page === 'history' && <History key={routeKey} {...props} />}
           {page === 'settings' && (
@@ -279,7 +279,6 @@ export default function App() {
             <BrandMark />
             Miga · v{version}
           </span>
-          <span>Hecho para cuidar lo que crece.</span>
           <span>Sin prisas. Sin conexión con servidores.</span>
         </footer>
       </div>

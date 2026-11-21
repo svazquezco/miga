@@ -30,7 +30,19 @@ export function isAppData(value: unknown): value is AppData {
     !finite(s.temperature) ||
     !['fridge', 'room'].includes(String(s.storage)) ||
     !(s.lastFedAt === null || date(s.lastFedAt)) ||
+    (s.storageChangedAt !== undefined && !date(s.storageChangedAt)) ||
     !date(s.createdAt)
+  )
+    return false;
+  const recovery = value.recovery;
+  if (
+    recovery !== undefined &&
+    (!record(recovery) ||
+      (recovery.goal !== 'bake' && recovery.goal !== 'maintain') ||
+      (recovery.confirmations !== 0 && recovery.confirmations !== 1) ||
+      (recovery.stage !== 'start' &&
+        recovery.stage !== 'feed' &&
+        !(recovery.stage === 'observe' && typeof recovery.feedingId === 'string')))
   )
     return false;
   return (
@@ -43,7 +55,12 @@ export function isAppData(value: unknown): value is AppData {
         [f.starterG, f.waterG, f.flourG].every((n) => finite(n) && n > 0) &&
         finite(f.temperature) &&
         ['fridge', 'room'].includes(String(f.storage)) &&
-        typeof f.notes === 'string',
+        typeof f.notes === 'string' &&
+        (f.bakingCheck === undefined ||
+          (record(f.bakingCheck) &&
+            date(f.bakingCheck.at) &&
+            Date.parse(String(f.bakingCheck.at)) > Date.parse(String(f.fedAt)) &&
+            (f.bakingCheck.safety === 'healthy' || f.bakingCheck.safety === 'hooch'))),
     ) &&
     value.observations.every(
       (o) =>

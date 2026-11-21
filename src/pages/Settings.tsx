@@ -13,7 +13,6 @@ export function Settings({
   canInstall,
 }: PageProps & { onExport: () => void; onInstall: () => void; canInstall: boolean }) {
   const [name, setName] = useState(data.starter.name);
-  const [temperature, setTemperature] = useState(String(data.starter.temperature));
   const [storage, setStorage] = useState(data.starter.storage);
   const [lastFed, setLastFed] = useState(
     data.starter.lastFedAt ? inputDate(new Date(data.starter.lastFedAt)) : '',
@@ -26,18 +25,12 @@ export function Settings({
     setError('');
     if (
       !name.trim() ||
-      !temperature.trim() ||
       !hydration.trim() ||
-      !Number.isFinite(Number(temperature)) ||
-      Number(temperature) < 1 ||
-      Number(temperature) > 45 ||
       !Number.isFinite(Number(hydration)) ||
       Number(hydration) <= 0 ||
       Number(hydration) > 300
     ) {
-      setError(
-        'Revisa el nombre, la temperatura (1–45 °C) y la hidratación (mayor que 0, hasta 300 %).',
-      );
+      setError('Revisa el nombre y la hidratación (mayor que 0, hasta 300 %).');
       return;
     }
     if (lastFed && (!Number.isFinite(Date.parse(lastFed)) || Date.parse(lastFed) > Date.now())) {
@@ -50,7 +43,7 @@ export function Settings({
         ...data.starter,
         name: name.trim(),
         storage,
-        temperature: Number(temperature),
+        ...(storage !== data.starter.storage && { storageChangedAt: new Date().toISOString() }),
         hydration: Number(hydration),
         lastFedAt: lastFed ? new Date(lastFed).toISOString() : null,
       },
@@ -98,29 +91,13 @@ export function Settings({
                 solo cubre el 100 % de hidratación.
               </Notice>
             )}
-            <div className="form-two">
-              <label>
-                Conservación
-                <select
-                  value={storage}
-                  onChange={(e) => setStorage(e.target.value as StoragePlace)}
-                >
-                  <option value="fridge">Nevera</option>
-                  <option value="room">Temperatura ambiente</option>
-                </select>
-              </label>
-              <label>
-                Temperatura para fermentar (°C)
-                <input
-                  type="number"
-                  min="1"
-                  max="45"
-                  step="0.5"
-                  value={temperature}
-                  onChange={(e) => setTemperature(e.target.value)}
-                />
-              </label>
-            </div>
+            <label>
+              Conservación
+              <select value={storage} onChange={(e) => setStorage(e.target.value as StoragePlace)}>
+                <option value="fridge">Nevera</option>
+                <option value="room">Temperatura ambiente</option>
+              </select>
+            </label>
             <label>
               Último refresco (si lo sabes)
               <input

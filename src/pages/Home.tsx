@@ -1,44 +1,71 @@
-import {
-  BookOpen,
-  Sparkles,
-  Thermometer,
-  Clock3,
-  Plus,
-  Calculator,
-  Leaf,
-  ChevronRight,
-  RefreshCw,
-  MapPin,
-} from 'lucide-react';
+import { useRef, useState } from 'react';
+import type { SubmitEvent } from 'react';
+import { BookOpen, Sparkles, Plus, Calculator, Leaf, ChevronRight, RefreshCw } from 'lucide-react';
 import { Jar, Miga } from '../components/Illustrations';
-import { dateLabel } from '../components/UI';
-import { isContaminated } from '../domain/starter';
+import { dateLabel, inputDate, Modal } from '../components/UI';
+import {
+  atRoomSinceFeeding,
+  isContaminated,
+  latestBakingFeeding,
+  latestFeeding,
+} from '../domain/starter';
+import type { StoragePlace } from '../domain/starter';
 import type { PageProps } from '../types';
-export function Home({ data, navigate }: PageProps) {
-  const observation = data.observations[0];
-  const unsafe = data.observations.some((o) => isContaminated(o.safety));
+export function Home({ data, navigate, update }: PageProps) {
+  const [editing, setEditing] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+
+  function closeEditor() {
+    setEditing(false);
+    editButton.current?.focus();
+  }
+
+  const last = data.starter.lastFedAt;
+  const movedAt = data.starter.storageChangedAt;
+  const latest = latestFeeding(data);
+  const trackingSince = Math.max(last ? Date.parse(last) : 0, movedAt ? Date.parse(movedAt) : 0);
+  const observation = data.observations.find(
+    (entry) =>
+      Math.floor(Date.parse(entry.observedAt) / 60_000) >= Math.floor(trackingSince / 60_000),
+  );
+  const unsafe = data.observations.some((entry) => isContaminated(entry.safety));
+  const knownLocation = Boolean(movedAt || latest);
+  const inFridge = knownLocation && data.starter.storage === 'fridge';
+  const fermenting = latest && atRoomSinceFeeding(data.starter, latest);
+  const review =
+    unsafe || inFridge || data.recovery ? undefined : latestBakingFeeding(data)?.bakingCheck;
+  const activityLabels = {
+    peak: 'En el pico',
+    rising: 'Está creciendo',
+    fallen: 'Después del pico',
+    quiet: 'Aún sin subida',
+    unknown: '',
+  };
+  const activityLabel = observation ? activityLabels[observation.activity] : '';
   const status = unsafe
     ? 'Revisa su seguridad'
-    : observation?.activity === 'peak'
-      ? 'En su pico'
-      : observation?.activity === 'rising'
-        ? 'Está creciendo'
-        : observation?.activity === 'fallen'
-          ? 'Después del pico'
-          : observation?.activity === 'quiet'
-            ? 'Con calma'
-            : 'Por descubrir';
-  const subtitle = unsafe
-    ? 'Hay una señal de contaminación registrada. No refresques este cultivo.'
-    : observation
-      ? 'Este es el último estado que has observado. Vamos a ver qué necesita ahora.'
-      : 'Cada cultivo tiene su ritmo. Una mirada, un refresco y un poquito de paciencia.';
-  const last = data.starter.lastFedAt;
-  const reviewAt = last
-    ? new Date(
-        Date.parse(last) + (data.starter.storage === 'fridge' ? 7 * 24 : 6) * 3_600_000,
-      ).toISOString()
-    : null;
+    : inFridge
+      ? 'En la nevera'
+      : activityLabel ||
+        (fermenting
+          ? 'Fermentando'
+          : knownLocation
+            ? 'A temperatura ambiente'
+            : 'Crecimiento sin registrar');
+  const statusSince = inFridge
+    ? movedAt
+    : activityLabel
+      ? observation?.observedAt
+      : fermenting
+        ? latest.fedAt
+        : movedAt;
+
+  function changeStorage(storage: StoragePlace) {
+    update({
+      ...data,
+      starter: { ...data.starter, storage, storageChangedAt: new Date().toISOString() },
+    });
+  }
   return (
     <>
       <header className="home-heading">
@@ -65,15 +92,61 @@ export function Home({ data, navigate }: PageProps) {
         <section className="starter-hero">
           <div className="hero-copy">
             <span className="overline">TU PEQUEÑO CULTIVO</span>
-            <h2>{data.starter.name}</h2>
+            <div className="hero-cultivation-name">
+              <h2>{data.starter.name}</h2>
+              <button
+                className="text-button"
+                ref={editButton}
+                aria-label="Editar mi masa madre"
+                onClick={() => setEditing(true)}
+              >
+                Editar
+              </button>
+            </div>
+            <div className="hero-last-feeding">
+              {last ? (
+                <>
+                  Último refresco: <time dateTime={last}>{dateLabel(last)}</time>
+                </>
+              ) : (
+                'Sin fecha de refresco'
+              )}
+            </div>
             <span className={`state-chip ${unsafe ? 'unsafe' : ''}`}>
               <span />
               {status}
             </span>
-            <p>{subtitle}</p>
+            {statusSince && !unsafe && (
+              <div className="hero-last-feeding">
+                Desde el <time dateTime={statusSince}>{dateLabel(statusSince)}</time>
+              </div>
+            )}
+            {unsafe && (
+              <p>Hay una señal de contaminación registrada. No refresques este cultivo.</p>
+            )}
+            {!unsafe && (
+              <div className="hero-storage-actions">
+                {(!knownLocation || !inFridge) && (
+                  <button className="text-button" onClick={() => changeStorage('fridge')}>
+                    Guardar en la nevera
+                  </button>
+                )}
+                {(!knownLocation || inFridge) && (
+                  <button className="text-button" onClick={() => changeStorage('room')}>
+                    Dejar a temperatura ambiente
+                  </button>
+                )}
+              </div>
+            )}
             <button className="primary" onClick={() => navigate('assistant')}>
               <Sparkles size={18} />
-              Ver qué necesita
+              {data.recovery && !unsafe && data.starter.hydration === 100
+                ? 'Continuar recuperación'
+                : review
+                  ? Date.parse(review.at) <= Date.now()
+                    ? 'Revisar actividad'
+                    : 'Revisar el ' + dateLabel(review.at)
+                  : 'Ver qué necesita'}
             </button>
           </div>
           <div className="hero-illustration">
@@ -103,73 +176,18 @@ export function Home({ data, navigate }: PageProps) {
             <span className="hello-tag">¡Hola!</span>
           </div>
           <Miga waving />
-          <h2>¡Hola! Soy Miga.</h2>
-          <p>Cuéntame cómo está tu masa madre y vamos paso a paso.</p>
-          <button className="secondary" onClick={() => navigate('assistant')}>
-            Hablar con Miga <ChevronRight size={17} />
-          </button>
-        </section>
-        <section className="cultivation-facts" aria-label="Información del cultivo">
-          <div>
-            <span className="fact-icon">
-              <Clock3 size={20} />
-            </span>
-            <span>
-              <small>Último refresco</small>
-              <strong>{last ? dateLabel(last) : 'Aún sin registrar'}</strong>
-            </span>
+          <h2>¿Qué quieres hacer hoy?</h2>
+          <div className="miga-actions">
+            <a className="secondary" href="#assistant/bake">
+              Quiero hacer pan <ChevronRight size={17} />
+            </a>
+            <a className="secondary" href="#assistant/maintain">
+              Quiero refrescar mi masa <ChevronRight size={17} />
+            </a>
           </div>
-          <div>
-            <span className="fact-icon">
-              <Thermometer size={20} />
-            </span>
-            <span>
-              <small>Temperatura indicada</small>
-              <strong>{data.starter.temperature} °C</strong>
-            </span>
-          </div>
-          <div>
-            <span className="fact-icon">
-              <MapPin size={20} />
-            </span>
-            <span>
-              <small>Conservación</small>
-              <strong>
-                {data.starter.storage === 'fridge' ? 'En la nevera' : 'A temperatura ambiente'}
-              </strong>
-            </span>
-          </div>
-          <button className="text-button" onClick={() => navigate('settings')}>
-            Editar cultivo
-          </button>
         </section>
       </div>
-      {reviewAt && !unsafe && (
-        <section className="review-strip">
-          <Clock3 size={21} />
-          <div>
-            <span className="eyebrow">REVISIÓN ORIENTATIVA</span>
-            <h3>
-              {Date.parse(reviewAt) <= Date.now()
-                ? 'Un buen momento para volver a mirar'
-                : dateLabel(reviewAt)}
-            </h3>
-            <p>
-              {data.starter.storage === 'fridge'
-                ? 'En nevera, una revisión semanal es una referencia de mantenimiento. Ajusta según su evolución.'
-                : 'Comprueba crecimiento, burbujas y aroma. Esta hora invita a observar; no confirma que esté lista.'}
-            </p>
-          </div>
-          <button
-            className="text-button"
-            onClick={() => {
-              location.hash = 'history/observe';
-            }}
-          >
-            Anotar lo que veo
-          </button>
-        </section>
-      )}
+      {editing && <EditCultivation data={data} update={update} onClose={closeEditor} />}
       <section className="explore-section">
         <div className="section-heading">
           <div>
@@ -217,40 +235,86 @@ export function Home({ data, navigate }: PageProps) {
           </button>
         </div>
       </section>
-      <div className="home-bottom">
-        <a
-          className="tip-card"
-          href="#guide/activity"
-          aria-label="Aprender a observar la actividad"
-        >
-          <span className="tip-doodle">
-            <Leaf size={34} />
-          </span>
-          <div>
-            <span className="eyebrow">UNA PISTA DE MIGA</span>
-            <h3>El tarro te cuenta más que el reloj.</h3>
-            <p>
-              Marca el nivel después de refrescar. Ver cuánto crece te ayudará a conocer su ritmo.
-            </p>
-          </div>
-          <span className="tip-chevron" aria-hidden="true">
-            <ChevronRight />
-          </span>
-        </a>
-        <button
-          className="add-observation"
-          onClick={() => {
-            location.hash = 'history/observe';
-          }}
-        >
-          <Plus size={20} />
-          ¿Ves algo nuevo?<strong>Registrar una observación</strong>
-        </button>
-      </div>
+      <button
+        className="add-observation"
+        onClick={() => {
+          location.hash = 'history/observe';
+        }}
+      >
+        <Plus size={20} />
+        ¿Ves algo nuevo?<strong>Registrar una observación</strong>
+      </button>
       <p className="scope-line">
         <Leaf size={14} /> Para masa madre madura de trigo al 100 % de hidratación. Los tiempos
         orientan; la actividad decide.
       </p>
     </>
+  );
+}
+
+function EditCultivation({
+  data,
+  update,
+  onClose,
+}: Pick<PageProps, 'data' | 'update'> & { onClose: () => void }) {
+  const [initial] = useState(data.starter);
+  const [error, setError] = useState('');
+  const initialDate = initial.lastFedAt ? inputDate(new Date(initial.lastFedAt)) : '';
+
+  function save(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const fields = new FormData(event.currentTarget);
+    const name = String(fields.get('name')).trim();
+    const date = String(fields.get('lastFedAt'));
+    if (!name) {
+      setError('Escribe un nombre para tu masa madre.');
+      return;
+    }
+    let lastFedAt = data.starter.lastFedAt;
+    if (date !== initialDate) {
+      const time = Date.parse(date);
+      if (date && (!Number.isFinite(time) || time > Date.now())) {
+        setError('La fecha debe ser válida y no estar en el futuro.');
+        return;
+      }
+      lastFedAt = date ? new Date(time).toISOString() : null;
+    }
+    update({
+      ...data,
+      starter: {
+        ...data.starter,
+        name: name === initial.name ? data.starter.name : name,
+        lastFedAt,
+      },
+    });
+    onClose();
+  }
+
+  return (
+    <Modal title="Editar mi masa madre" onClose={onClose}>
+      <form className="form-stack" onSubmit={save}>
+        <label>
+          Nombre
+          <input name="name" defaultValue={initial.name} maxLength={45} required />
+        </label>
+        <label>
+          Último refresco (si lo sabes)
+          <input
+            type="datetime-local"
+            name="lastFedAt"
+            defaultValue={initialDate}
+            max={inputDate()}
+          />
+        </label>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="primary" type="submit">
+          Guardar cambios
+        </button>
+      </form>
+    </Modal>
   );
 }
