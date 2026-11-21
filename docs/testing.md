@@ -10,6 +10,8 @@ pnpm run format:check
 
 `pnpm run typecheck` checks TypeScript without bundling.
 
+Release Please manages `CHANGELOG.md`. Prettier skips that generated file.
+
 ## Coverage
 
 Vitest runs `tests/*.test.ts`: safety, time boundaries, hydration, calculations,
