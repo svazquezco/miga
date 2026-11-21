@@ -48,6 +48,73 @@ export interface AppData {
   feedings: Feeding[];
   observations: Observation[];
 }
+type StarterChanges = Partial<
+  Pick<Starter, 'name' | 'hydration' | 'lastFedAt' | 'storage' | 'storageChangedAt'>
+>;
+export type JournalChange =
+  | { type: 'starter'; changes: StarterChanges }
+  | { type: 'feeding'; feeding: Feeding; recoveryStage?: 'start' | 'feed' }
+  | { type: 'observation'; observation: Observation; checkedFeedingId?: string }
+  | { type: 'recovery'; recovery?: Recovery; checkedFeedingId?: string }
+  | { type: 'reset' };
+
+export function applyJournalChange(data: AppData, change: JournalChange): AppData {
+  switch (change.type) {
+    case 'starter':
+      return { ...data, starter: { ...data.starter, ...change.changes } };
+    case 'observation':
+    case 'recovery': {
+      const feedings = change.checkedFeedingId
+        ? data.feedings.map((feeding) =>
+            feeding.id === change.checkedFeedingId
+              ? { ...feeding, bakingCheck: undefined }
+              : feeding,
+          )
+        : data.feedings;
+      if (change.type === 'recovery') return { ...data, feedings, recovery: change.recovery };
+      return {
+        ...data,
+        feedings,
+        observations: [change.observation, ...data.observations].sort(
+          (a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt),
+        ),
+      };
+    }
+    case 'reset':
+      return createData();
+    case 'feeding': {
+      const { feeding, recoveryStage } = change;
+      const { starter, recovery } = data;
+      const { latest, afterMove } = feedingTiming(starter, feeding.fedAt);
+      return {
+        ...data,
+        starter: latest
+          ? {
+              ...starter,
+              lastFedAt: feeding.fedAt,
+              temperature: feeding.temperature,
+              ...(afterMove && { storage: feeding.storage, storageChangedAt: feeding.fedAt }),
+            }
+          : starter,
+        recovery:
+          recovery && recoveryStage === recovery.stage && recoveryStage !== undefined
+            ? { ...recovery, stage: 'observe', feedingId: feeding.id }
+            : recovery && latest && recovery.stage !== 'start'
+              ? { goal: recovery.goal, stage: 'feed', confirmations: 0 }
+              : recovery,
+        feedings: [feeding, ...data.feedings].sort(
+          (a, b) => Date.parse(b.fedAt) - Date.parse(a.fedAt),
+        ),
+      };
+    }
+  }
+}
+
+export function feedingBlock(data: AppData) {
+  const contamination = data.observations.find((entry) => isContaminated(entry.safety))?.safety;
+  return { contamination, blocked: Boolean(contamination) || data.starter.hydration !== 100 };
+}
+
 export interface DecisionInput {
   storage: StoragePlace;
   elapsedHours: number;
@@ -112,6 +179,16 @@ export const peakTimeAt24C = {
 export function bakingCheckAt(fedAt: string, ratio: Ratio, active: boolean): string {
   const hours = active ? peakTimeAt24C[ratio].checkAfterHours : 12;
   return new Date(Date.parse(fedAt) + hours * 3_600_000).toISOString();
+}
+
+export function feedingTiming(starter: Starter, fedAt: string) {
+  const time = Date.parse(fedAt);
+  return {
+    latest: !starter.lastFedAt || time >= Date.parse(starter.lastFedAt),
+    afterMove:
+      !starter.storageChangedAt ||
+      Math.floor(time / 60_000) >= Math.floor(Date.parse(starter.storageChangedAt) / 60_000),
+  };
 }
 
 export function latestFeeding(data: AppData) {

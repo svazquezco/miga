@@ -23,8 +23,8 @@ import { Settings } from './pages/Settings';
 import { BrandMark } from './components/Illustrations';
 import { FeedingModal } from './components/FeedingModal';
 import { Notice } from './components/UI';
-import { loadData, saveData, STORAGE_KEY, browserStorage } from './storage/local';
-import type { AppData } from './domain/starter';
+import { STORAGE_KEY, browserStorage, createJournal, withJournalLock } from './storage/local';
+import type { SaveResult } from './storage/local';
 import type { Page, PageProps, FeedRequest } from './types';
 interface InstallPrompt extends Event {
   prompt(): Promise<void>;
@@ -42,9 +42,9 @@ const parsePage = (): Page => {
   return [...links.map((l) => l.id), 'settings'].includes(raw) ? (raw as Page) : 'home';
 };
 export default function App() {
-  const [loaded] = useState(() => loadData(browserStorage));
-  const [data, setData] = useState(loaded.data);
-  const [storageError, setStorageError] = useState(loaded.error);
+  const [journal] = useState(() => createJournal(browserStorage));
+  const [snapshot, setSnapshot] = useState(journal.snapshot);
+  const { data, pending, unreadable, original, conflict } = snapshot;
   const [page, setPage] = useState<Page>(parsePage);
   const [routeKey, setRouteKey] = useState(location.hash);
   const [menu, setMenu] = useState(false);
@@ -52,7 +52,6 @@ export default function App() {
   const [feed, setFeed] = useState<FeedRequest | null>(null);
   const [install, setInstall] = useState<InstallPrompt | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [saveFailed, setSaveFailed] = useState(false);
   useEffect(() => {
     const change = () => {
       setPage(parsePage());
@@ -79,15 +78,14 @@ export default function App() {
   );
   useEffect(() => {
     const sync = (event: StorageEvent) => {
-      if (event.key === STORAGE_KEY) {
-        const fresh = loadData(browserStorage);
-        setStorageError(fresh.error);
-        if (!fresh.error) setData(fresh.data);
+      if (event.key === STORAGE_KEY || event.key === null) {
+        journal.refresh();
+        setSnapshot(journal.snapshot());
       }
     };
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
-  }, []);
+  }, [journal]);
   useEffect(() => {
     document.title = `Miga · ${page === 'settings' ? 'Tu cultivo' : links.find((l) => l.id === page)?.label}`;
   }, [page]);
@@ -102,28 +100,21 @@ export default function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 5500);
   }
-  function update(next: AppData): ReturnType<PageProps['update']> {
-    if (storageError) {
-      notify(
-        'El guardado está bloqueado para proteger la copia local que no se pudo leer. Descárgala desde ajustes.',
-      );
-      return 'blocked';
-    }
-    const ok = saveData(browserStorage, next);
-    setData(next);
-    setSaveFailed(!ok);
-    if (!ok) notify('No se ha podido guardar en el navegador. Descarga una copia antes de cerrar.');
-    return ok ? 'saved' : 'memory';
+  async function writeJournal(write: () => SaveResult) {
+    const result = await withJournalLock(write);
+    setSnapshot(journal.snapshot());
+    return result;
   }
-  function exportData() {
-    let raw: string;
-    if (storageError) {
-      try {
-        raw = localStorage.getItem(STORAGE_KEY) ?? JSON.stringify(data);
-      } catch {
-        raw = JSON.stringify(data);
-      }
-    } else raw = JSON.stringify(data, null, 2);
+  const update: PageProps['update'] = async (change) => {
+    const result = await writeJournal(() => journal.update(change, data));
+    if (result === 'blocked') {
+      notify('No se pudo guardar. Revisa los avisos o los cambios de la otra pestaña.');
+    } else if (result === 'memory') {
+      notify('Hay cambios sin guardar. Puedes reintentar o descargar una copia.');
+    }
+    return result;
+  };
+  function exportData(raw = original ?? JSON.stringify(data, null, 2)) {
     const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
@@ -214,50 +205,70 @@ export default function App() {
           </div>
         </header>
         <main id="main-content" tabIndex={-1}>
-          {storageError && (
+          {unreadable && (
             <div className="storage-banner">
               <Notice danger>
-                {storageError}{' '}
-                <button className="text-button" onClick={exportData}>
-                  <Download size={16} />
-                  Descargar copia original
-                </button>
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        '¿Has descargado la copia? Continuar reemplazará los datos locales ilegibles con un cultivo nuevo.',
-                      )
-                    ) {
-                      setStorageError(null);
-                      saveData(browserStorage, data);
-                    }
-                  }}
-                >
-                  Continuar con datos nuevos
-                </button>
+                No se pueden leer los datos locales. El guardado está bloqueado.
+                {original !== undefined && (
+                  <>
+                    <button className="text-button" onClick={() => exportData(original)}>
+                      <Download size={16} />
+                      Descargar copia original
+                    </button>
+                    {!pending && (
+                      <button
+                        className="text-button"
+                        onClick={async () => {
+                          if (
+                            !window.confirm(
+                              '¿Quieres reemplazar los datos locales ilegibles con un cultivo nuevo?',
+                            )
+                          )
+                            return;
+                          const result = await writeJournal(() =>
+                            journal.replaceUnreadable(original),
+                          );
+                          notify(
+                            result === 'saved'
+                              ? 'Nuevo cultivo guardado.'
+                              : 'No se pudo reemplazar la copia local.',
+                          );
+                        }}
+                      >
+                        Continuar con datos nuevos
+                      </button>
+                    )}
+                  </>
+                )}
               </Notice>
             </div>
           )}
-          {saveFailed && (
+          {pending && (
             <Notice danger>
-              Hay cambios sin guardar en el navegador.{' '}
-              <button className="text-button" onClick={exportData}>
-                Descargar copia
-              </button>
+              {conflict
+                ? 'Los datos del navegador han cambiado. Descarga los cambios pendientes antes de recargar.'
+                : 'Hay cambios sin guardar en el navegador.'}
               <button
                 className="text-button"
-                onClick={() => {
-                  const ok = saveData(browserStorage, data);
-                  setSaveFailed(!ok);
-                  notify(
-                    ok ? 'Cambios guardados.' : 'El navegador sigue sin permitir el guardado.',
-                  );
-                }}
+                onClick={() => exportData(JSON.stringify(data, null, 2))}
               >
-                Reintentar guardado
+                Descargar cambios pendientes
               </button>
+              {!conflict && (
+                <button
+                  className="text-button"
+                  onClick={async () => {
+                    const result = await writeJournal(journal.retry);
+                    notify(
+                      result === 'saved'
+                        ? 'Cambios guardados.'
+                        : 'No se pudieron guardar los cambios.',
+                    );
+                  }}
+                >
+                  Reintentar guardado
+                </button>
+              )}
             </Notice>
           )}
           {page === 'home' && <Home {...props} />}
@@ -268,7 +279,7 @@ export default function App() {
           {page === 'settings' && (
             <Settings
               {...props}
-              onExport={exportData}
+              onExport={() => exportData()}
               onInstall={() => void installApp()}
               canInstall={!!install}
             />

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Download, Save, Smartphone, LockKeyhole, Sprout } from 'lucide-react';
-import { PageTitle, Notice, inputDate } from '../components/UI';
-import { createData } from '../domain/starter';
+import { PageTitle, Notice } from '../components/UI';
 import type { StoragePlace } from '../domain/starter';
 import type { PageProps } from '../types';
 export function Settings({
@@ -12,43 +11,38 @@ export function Settings({
   onInstall,
   canInstall,
 }: PageProps & { onExport: () => void; onInstall: () => void; canInstall: boolean }) {
-  const [name, setName] = useState(data.starter.name);
-  const [storage, setStorage] = useState(data.starter.storage);
-  const [lastFed, setLastFed] = useState(
-    data.starter.lastFedAt ? inputDate(new Date(data.starter.lastFedAt)) : '',
-  );
-  const [hydration, setHydration] = useState(String(data.starter.hydration));
+  const [draftStorage, setStorage] = useState<StoragePlace>();
+  const [draftHydration, setHydration] = useState<string>();
+  const storage = draftStorage ?? data.starter.storage;
+  const hydration = draftHydration ?? String(data.starter.hydration);
   const [error, setError] = useState('');
   const [reset, setReset] = useState(false);
-  function save(e: React.SubmitEvent<HTMLFormElement>) {
+  async function save(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
     if (
-      !name.trim() ||
       !hydration.trim() ||
       !Number.isFinite(Number(hydration)) ||
-      Number(hydration) <= 0 ||
+      Number(hydration) < 1 ||
       Number(hydration) > 300
     ) {
-      setError('Revisa el nombre y la hidratación (mayor que 0, hasta 300 %).');
+      setError('Indica una hidratación entre el 1 % y el 300 %.');
       return;
     }
-    if (lastFed && (!Number.isFinite(Date.parse(lastFed)) || Date.parse(lastFed) > Date.now())) {
-      setError('La fecha debe ser válida y no estar en el futuro.');
-      return;
-    }
-    update({
-      ...data,
-      starter: {
-        ...data.starter,
-        name: name.trim(),
-        storage,
-        ...(storage !== data.starter.storage && { storageChangedAt: new Date().toISOString() }),
-        hydration: Number(hydration),
-        lastFedAt: lastFed ? new Date(lastFed).toISOString() : null,
+    const result = await update({
+      type: 'starter',
+      changes: {
+        ...(storage !== data.starter.storage && {
+          storage,
+          storageChangedAt: new Date().toISOString(),
+        }),
+        ...(draftHydration !== undefined && { hydration: Number(hydration) }),
       },
     });
-    notify('Datos del cultivo guardados.');
+    if (result === 'blocked') return;
+    setStorage(undefined);
+    setHydration(undefined);
+    if (result === 'saved') notify('Datos del cultivo guardados.');
   }
   return (
     <>
@@ -59,15 +53,6 @@ export function Settings({
         <section className="reading-card">
           <h2>Mi masa madre</h2>
           <form onSubmit={save} className="form-stack">
-            <label>
-              ¿Cómo se llama?
-              <input
-                value={name}
-                maxLength={45}
-                required
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
             <div className="form-two">
               <label>
                 Harina
@@ -97,15 +82,6 @@ export function Settings({
                 <option value="fridge">Nevera</option>
                 <option value="room">Temperatura ambiente</option>
               </select>
-            </label>
-            <label>
-              Último refresco (si lo sabes)
-              <input
-                type="datetime-local"
-                max={inputDate()}
-                value={lastFed}
-                onChange={(e) => setLastFed(e.target.value)}
-              />
             </label>
             {error && (
               <p className="form-error" role="alert">
@@ -168,9 +144,10 @@ export function Settings({
                 <div className="inline-actions">
                   <button
                     className="danger-button"
-                    onClick={() => {
-                      update(createData());
-                      notify('Nuevo cultivo creado.');
+                    onClick={async () => {
+                      const result = await update({ type: 'reset' });
+                      if (result === 'blocked') return;
+                      if (result === 'saved') notify('Nuevo cultivo creado.');
                       location.hash = 'home';
                     }}
                   >
