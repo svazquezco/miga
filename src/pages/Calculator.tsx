@@ -9,17 +9,19 @@ import {
   Scale,
 } from 'lucide-react';
 import { PageTitle, Notice, grams } from '../components/UI';
-import { displayedAmounts, isContaminated } from '../domain/starter';
+import { displayedAmounts, isContaminated, peakTimeAt24C } from '../domain/starter';
 import type { Ratio } from '../domain/starter';
 import type { PageProps, FeedRequest } from '../types';
 export function Calculator({
   data,
   notify,
   onFeed,
-}: PageProps & { onFeed: (request: FeedRequest) => void }) {
+  embedded = false,
+}: PageProps & { onFeed: (request: FeedRequest) => void; embedded?: boolean }) {
   const [recipe, setRecipe] = useState('200');
   const [reserve, setReserve] = useState('20');
   const [ratio, setRatio] = useState<Ratio>(2);
+  const [activeStarter, setActiveStarter] = useState(true);
   const [copied, setCopied] = useState(false);
   let amounts: ReturnType<typeof displayedAmounts> | null = null;
   if (recipe.trim() && reserve.trim()) {
@@ -45,10 +47,12 @@ export function Calculator({
   }
   return (
     <>
-      <PageTitle eyebrow="LO JUSTO, CON UN POQUITO DE RESERVA" title="Cada gramo tiene su sitio.">
-        Calcula tu último refresco para la receta o el mantenimiento.
-      </PageTitle>
-      <div className="calculator-layout">
+      {!embedded && (
+        <PageTitle eyebrow="LO JUSTO, CON UN POQUITO DE RESERVA" title="Cada gramo tiene su sitio.">
+          Calcula tu último refresco para la receta o el mantenimiento.
+        </PageTitle>
+      )}
+      <div className={embedded ? 'calculator-layout embedded-calculator' : 'calculator-layout'}>
         <section className="reading-card calculator-form">
           <span className="quick-icon wheat">
             <CalculatorIcon />
@@ -109,10 +113,6 @@ export function Calculator({
               Aumenta la cantidad para poder pesar todos los ingredientes con precisión de 0,1 g.
             </p>
           )}
-          <Notice>
-            Más alimento por parte de cultivo suele alargar el tiempo hasta el pico. La proporción
-            no garantiza por sí sola que esté lista.
-          </Notice>
         </section>
         <section className="calculator-result" aria-live="polite">
           <div className="calculator-result-heading">
@@ -148,6 +148,35 @@ export function Calculator({
             {reserve || '0'} g de reserva incluidos. No cubre los restos que queden adheridos al
             recipiente.
           </p>
+          {!blocked && (
+            <div className="calculator-timing">
+              <div className="segmented" role="group" aria-label="Actividad de la masa madre">
+                <button
+                  type="button"
+                  aria-pressed={activeStarter}
+                  onClick={() => setActiveStarter(true)}
+                >
+                  Masa activa
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!activeStarter}
+                  onClick={() => setActiveStarter(false)}
+                >
+                  Masa no activa
+                </button>
+              </div>
+              <div className="calculator-timing-row">
+                <span>Tiempo hasta el pico</span>
+                <strong>{activeStarter ? peakTimeAt24C[ratio].label : 'Sin estimación'}</strong>
+              </div>
+              <p>
+                {activeStarter
+                  ? 'Referencia para masa madre madura a unos 24 °C. Busca su mayor altura y abundantes burbujas.'
+                  : 'Si aún se está reactivando, su ritmo puede cambiar de un refresco a otro. Observa si sube y forma burbujas a temperatura ambiente.'}
+              </p>
+            </div>
+          )}
           <div className="stack-actions">
             <button
               className="primary"
@@ -159,6 +188,7 @@ export function Calculator({
                   starterG: amounts.starter,
                   waterG: amounts.water,
                   flourG: amounts.flour,
+                  ...(embedded && { bakingStarterActive: activeStarter }),
                 })
               }
             >
