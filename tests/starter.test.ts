@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyJournalChange,
+  bakingCheckAt,
   calculate,
   createData,
   displayedAmounts,
   elapsedHours,
+  measuredFeedingRatio,
   recommend,
   selectProtocol,
 } from '../src/domain/starter';
@@ -15,7 +17,6 @@ const input: DecisionInput = {
   safety: 'healthy',
   goal: 'bake',
   activity: 'quiet',
-  temperature: 24,
   hydration: 100,
 };
 describe('shared recommendation rules', () => {
@@ -74,6 +75,17 @@ describe('shared recommendation rules', () => {
         });
   it('gives contamination priority even outside the hydration scope', () =>
     expect(recommend({ ...input, safety: 'mold', hydration: 80 }).kind).toBe('discard'));
+  it('waits for a rising starter instead of recommending a feeding at 18 hours', () => {
+    const result = recommend({
+      ...input,
+      goal: 'maintain',
+      storage: 'room',
+      elapsedHours: 18,
+      activity: 'rising',
+    });
+    expect(result.kind).toBe('wait');
+    expect(result.protocol).toBeUndefined();
+  });
   it('requires inspection before suggesting a protocol', () =>
     expect(recommend({ ...input, safety: 'unknown' }).kind).toBe('inspect'));
   it('does not treat hooch alone as contamination', () =>
@@ -205,5 +217,20 @@ describe('journal actions', () => {
     });
     expect(observed.starter).toEqual(fed.starter);
     expect(observed.observations.map((entry) => entry.id)).toEqual(['check']);
+  });
+
+  it('uses the recorded amounts to choose the baking check time', () => {
+    const edited = { ...feeding, ratio: 5 };
+    const ratio = measuredFeedingRatio(edited);
+    expect(ratio).toBe(1);
+    expect(bakingCheckAt(fedAt, ratio, true)).toBe('2026-11-20T16:00:00.000Z');
+    expect(bakingCheckAt(fedAt, measuredFeedingRatio({ ...feeding, waterG: 35 }), true)).toBe(
+      '2026-11-21T00:00:00.000Z',
+    );
+  });
+
+  it('recognizes the rounded amounts suggested by the calculator', () => {
+    const { starter, water, flour } = displayedAmounts(210, 0, 5);
+    expect(measuredFeedingRatio({ starterG: starter, waterG: water, flourG: flour })).toBe(5);
   });
 });

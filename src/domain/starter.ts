@@ -121,7 +121,6 @@ export interface DecisionInput {
   safety: Safety;
   goal: Goal;
   activity: Activity;
-  temperature: number;
   hydration: number;
   feedingPace?: FeedingPace;
 }
@@ -159,6 +158,7 @@ export const bakingGrowthGuidance: Record<Activity, { title: string; text: strin
     text: 'Observa cuánto sube y si aparecen burbujas para saber cómo va este refresco.',
   },
 };
+// Baking trial at about 26 °C: https://www.kingarthurbaking.com/blog/2025/03/13/sourdough-feeding-ratios
 export const peakTimeReferences = [
   { ratio: 1, peak: 'Unas 4–6 h', doubling: 'En el ejemplo había duplicado alrededor de las 4 h.' },
   {
@@ -169,6 +169,7 @@ export const peakTimeReferences = [
   },
 ] as const;
 
+// Side-by-side observations at about 24 °C: https://thatsourdoughgal.com/the-ultimate-guide-to-sourdough-starter-feeding-ratios/
 export const peakTimeAt24C = {
   1: { label: '4–6 h', checkAfterHours: 4 },
   2: { label: '5–6 h', checkAfterHours: 5 },
@@ -176,9 +177,27 @@ export const peakTimeAt24C = {
   5: { label: 'unas 10 h', checkAfterHours: 10 },
 } satisfies Record<Ratio, { label: string; checkAfterHours: number }>;
 
-export function bakingCheckAt(fedAt: string, ratio: Ratio, active: boolean): string {
-  const hours = active ? peakTimeAt24C[ratio].checkAfterHours : 12;
+export function bakingCheckAt(fedAt: string, ratio: Ratio | undefined, active: boolean): string {
+  const hours = active && ratio !== undefined ? peakTimeAt24C[ratio].checkAfterHours : 12;
   return new Date(Date.parse(fedAt) + hours * 3_600_000).toISOString();
+}
+
+export function measuredFeedingRatio(feeding: Pick<Feeding, 'starterG' | 'waterG' | 'flourG'>) {
+  const { starterG, waterG, flourG } = feeding;
+  if (![starterG, waterG, flourG].every((amount) => Number.isFinite(amount) && amount > 0))
+    return undefined;
+  const ratios = [1, 2, 3, 5] as const;
+  const exact = ratios.find(
+    (ratio) =>
+      Math.abs(waterG - starterG * ratio) < 1e-8 && Math.abs(flourG - starterG * ratio) < 1e-8,
+  );
+  if (exact !== undefined) return exact;
+  const total = starterG + waterG + flourG;
+  if (!Number.isSafeInteger(Math.round(total * 10))) return undefined;
+  return ratios.find((ratio) => {
+    const amounts = displayedAmounts(total, 0, ratio);
+    return amounts.starter === starterG && amounts.water === waterG && amounts.flour === flourG;
+  });
 }
 
 export function feedingTiming(starter: Starter, fedAt: string) {
@@ -418,7 +437,7 @@ export function isContaminated(safety: Safety): boolean {
   return ['contamination', 'mold', 'pink', 'rotten'].includes(safety);
 }
 export type Recommendation = {
-  kind: 'discard' | 'out-of-scope' | 'inspect' | 'protocol';
+  kind: 'discard' | 'out-of-scope' | 'inspect' | 'wait' | 'protocol';
   title: string;
   text: string;
   protocol?: Protocol;
@@ -443,6 +462,7 @@ export function recommend(input: DecisionInput): Recommendation {
       title: 'Primero, una mirada al tarro',
       text: 'Comprueba el aspecto y el olor antes de elegir un refresco.',
     };
+  if (input.activity === 'rising') return { kind: 'wait', ...bakingGrowthGuidance.rising };
   const protocol = selectProtocol(input.storage, input.elapsedHours, input.feedingPace);
   const nextCondition =
     input.goal === 'maintain'

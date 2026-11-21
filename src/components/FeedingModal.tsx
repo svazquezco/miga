@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { Modal, Notice, inputDate } from './UI';
-import { bakingCheckAt, feedingBlock, feedingTiming, isContaminated } from '../domain/starter';
+import {
+  bakingCheckAt,
+  feedingBlock,
+  feedingTiming,
+  isContaminated,
+  measuredFeedingRatio,
+} from '../domain/starter';
 import type { Feeding, Safety, StoragePlace } from '../domain/starter';
 import type { PageProps, FeedRequest } from '../types';
 export function FeedingModal({
@@ -30,6 +36,7 @@ export function FeedingModal({
   const [error, setError] = useState('');
   const { blocked } = feedingBlock(data);
   const amounts = { starterG: Number(starter), waterG: Number(water), flourG: Number(flour) };
+  const measuredRatio = baking ? measuredFeedingRatio(amounts) : undefined;
   async function save(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
@@ -99,8 +106,9 @@ export function FeedingModal({
       notes,
     };
     if (baking && (safety === 'healthy' || safety === 'hooch')) {
+      if (measuredRatio !== undefined) feeding.ratio = measuredRatio;
       feeding.bakingCheck = {
-        at: bakingCheckAt(feeding.fedAt, feeding.ratio, request.bakingStarterActive === true),
+        at: bakingCheckAt(feeding.fedAt, measuredRatio, request.bakingStarterActive === true),
         safety,
       };
     }
@@ -129,6 +137,11 @@ export function FeedingModal({
           </strong>{' '}
           · cultivo : agua : harina. Puedes registrar las cantidades que realmente has usado.
         </p>
+        {request.bakingStarterActive && measuredRatio === undefined && (
+          <Notice>
+            Con estas cantidades, el reloj solo te recordará revisar el cultivo en 12 h.
+          </Notice>
+        )}
         <label>
           Fecha y hora
           <input

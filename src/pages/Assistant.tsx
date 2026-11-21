@@ -28,6 +28,39 @@ import { Calculator } from './Calculator';
 import { FeedingModal } from '../components/FeedingModal';
 import { Recovery } from '../components/Recovery';
 import type { PageProps, FeedRequest } from '../types';
+type Step = 'storage' | 'safety' | 'date' | 'goal' | 'calculate' | 'clock' | 'activity' | 'result';
+
+const stepCopy = {
+  storage: {
+    question: '¿Dónde ha estado desde el último refresco?',
+    hint: 'Elige si la has guardado en la nevera o a temperatura ambiente.',
+  },
+  safety: {
+    question: 'Primero lo importante: ¿cómo se ve y huele?',
+    hint: 'Mira todo el cultivo, no solo la superficie. Estas ilustraciones son ejemplos, no un diagnóstico.',
+  },
+  date: {
+    question: '¿Cuándo fue su último refresco?',
+    hint: 'Indica cuándo alimentaste tu masa madre por última vez.',
+  },
+  goal: {
+    question: '¿Qué quieres hacer con tu masa madre?',
+    hint: 'El cuidado cambia según quieras guardarla o preparar tu próximo pan.',
+  },
+  calculate: {
+    question: 'Calcula el refresco para tu pan',
+    hint: 'Calcula los gramos y registra el refresco cuando lo hayas hecho para iniciar el reloj.',
+  },
+  clock: {
+    question: 'Espera y observa su crecimiento',
+    hint: 'Deja fermentar a temperatura ambiente y marca el nivel en el tarro.',
+  },
+  activity: {
+    question: '¿Cuánto ha crecido desde el último refresco?',
+    hint: 'Compara la altura actual con la que tenía tras mezclar agua y harina. Si no marcaste el nivel, elige «No he seguido su crecimiento».',
+  },
+};
+
 export function Assistant({
   data,
   update,
@@ -44,9 +77,13 @@ export function Assistant({
   const bakingSupported = !blocked;
   const bakingFeeding = bakingSupported ? latestBakingFeeding(data) : undefined;
   const resume = initialGoal !== 'maintain' && !data.recovery ? bakingFeeding : undefined;
-  const startingStep = initialGoal ? 0 : 3;
-  const [currentStep, setStep] = useState(resume ? 5 : startingStep);
-  const step = recordedSafety && (currentStep >= 4 || data.recovery) ? 7 : currentStep;
+  const startingStep = initialGoal ? 'storage' : 'goal';
+  const [currentStep, setStep] = useState<Step>(resume ? 'clock' : startingStep);
+  const afterSafetySteps: Step[] = ['calculate', 'clock', 'activity', 'result'];
+  const step =
+    recordedSafety && (afterSafetySteps.includes(currentStep) || data.recovery)
+      ? 'result'
+      : currentStep;
   const [bakingSession, setBakingSession] = useState(resume);
   const [bakingRequest, setBakingRequest] = useState<FeedRequest | null>(null);
   const [skipCalculation, setSkipCalculation] = useState(false);
@@ -83,31 +120,18 @@ export function Assistant({
     safety: effectiveSafety,
     goal: goal ?? 'maintain',
     activity: activity ?? 'unknown',
-    temperature: Number(temperature),
     hydration: data.starter.hydration,
   });
-  const questions = [
-    '¿Dónde ha estado desde el último refresco?',
-    'Primero lo importante: ¿cómo se ve y huele?',
-    '¿Cuándo fue su último refresco?',
-    '¿Qué quieres hacer con tu masa madre?',
-    'Calcula el refresco para tu pan',
-    'Espera y observa su crecimiento',
-    '¿Cuánto ha crecido desde el último refresco?',
-  ];
-  const hints = [
-    'Elige si la has guardado en la nevera o a temperatura ambiente.',
-    'Mira todo el cultivo, no solo la superficie. Estas ilustraciones son ejemplos, no un diagnóstico.',
-    'Indica cuándo alimentaste tu masa madre por última vez.',
-    'El cuidado cambia según quieras guardarla o preparar tu próximo pan.',
-    'Calcula los gramos y registra el refresco cuando lo hayas hecho para iniciar el reloj.',
-    'Deja fermentar a temperatura ambiente y marca el nivel en el tarro.',
-    'Compara la altura actual con la que tenía tras mezclar agua y harina. Si no marcaste el nivel, elige «No he seguido su crecimiento».',
-  ];
   const showCalculator =
     goal === 'bake' && bakingSupported && !isContaminated(safety) && !skipCalculation;
-  const steps = [...(initialGoal ? [0, 1, 2] : [3, 1, 0, 2]), ...(showCalculator ? [4, 5] : []), 6];
-  const stepIndex = steps.indexOf(step);
+  const steps: Exclude<Step, 'result'>[] = [
+    ...(initialGoal
+      ? (['storage', 'safety', 'date'] as const)
+      : (['goal', 'safety', 'storage', 'date'] as const)),
+    ...(showCalculator ? (['calculate', 'clock'] as const) : []),
+    'activity',
+  ];
+  const stepIndex = step === 'result' ? steps.length : steps.indexOf(step);
   const timer =
     bakingFeeding &&
     (!bakingSession || bakingSession.id === bakingFeeding.id) &&
@@ -122,9 +146,9 @@ export function Assistant({
       ? bakingGrowthGuidance[activity ?? 'unknown']
       : undefined;
   const selectionMissing =
-    (step === 1 && safety === 'unknown') ||
-    (step === 3 && goal === null) ||
-    (step === 6 && activity === null);
+    (step === 'safety' && safety === 'unknown') ||
+    (step === 'goal' && goal === null) ||
+    (step === 'activity' && activity === null);
 
   function dateError() {
     if (lastFed) {
@@ -145,33 +169,33 @@ export function Assistant({
     return '';
   }
 
-  function goTo(target: number) {
+  function goTo(target: Step) {
     setError('');
-    const targetIndex = target === 7 ? steps.length : steps.indexOf(target);
-    const afterSafety = targetIndex > steps.indexOf(1);
-    const afterDate = targetIndex > steps.indexOf(2);
+    const targetIndex = target === 'result' ? steps.length : steps.indexOf(target);
+    const afterSafety = targetIndex > steps.indexOf('safety');
+    const afterDate = targetIndex > steps.indexOf('date');
 
     if (afterSafety && (recordedSafety || isContaminated(safety))) {
-      setStep(7);
+      setStep('result');
       return;
     }
-    if (targetIndex < stepIndex || step === 7) {
+    if (targetIndex < stepIndex) {
       setStep(target);
       return;
     }
-    if (target !== 3 && !goal) {
-      setStep(3);
+    if (target !== 'goal' && !goal) {
+      setStep('goal');
       setError('Selecciona qué quieres hacer con tu masa madre.');
       return;
     }
     if (afterSafety && safety === 'unknown') {
-      setStep(1);
+      setStep('safety');
       setError('Selecciona una opción sobre el aspecto y el aroma.');
       return;
     }
-    if (afterSafety && safety === 'hooch' && goal && (step === 1 || !bakingSession)) {
+    if (afterSafety && safety === 'hooch' && goal && (step === 'safety' || !bakingSession)) {
       if (!bakingSupported) {
-        setStep(7);
+        setStep('result');
         return;
       }
       void update({ type: 'recovery', recovery: { goal, stage: 'start', confirmations: 0 } });
@@ -179,35 +203,36 @@ export function Assistant({
     }
     const invalidDate = afterDate ? dateError() : '';
     if (invalidDate) {
-      setStep(2);
+      setStep('date');
       setError(invalidDate);
       return;
     }
     if (afterDate && data.starter.hydration !== 100) {
-      setStep(7);
+      setStep('result');
       return;
     }
     if (afterDate && !lastFed && goal === 'maintain') {
-      setStep(2);
+      setStep('date');
       setError('Indica cuándo fue el último refresco para orientar el mantenimiento.');
       return;
     }
-    if (target > 4 && showCalculator && !timer) {
-      setStep(4);
+    const afterCalculation = target === 'clock' || target === 'activity' || target === 'result';
+    if (afterCalculation && showCalculator && !timer && !(saved && observedBakingFeeding)) {
+      setStep('calculate');
       setError('Registra el refresco para iniciar el reloj o sigue con el que ya has hecho.');
       return;
     }
-    if (target === 7 && !activity) {
-      setStep(6);
+    if (target === 'result' && !activity) {
+      setStep('activity');
       setError('Selecciona una opción sobre el crecimiento.');
       return;
     }
-    if (target > 4 && showCalculator && timer) setBakingSession(bakingFeeding);
+    if (afterCalculation && showCalculator && timer) setBakingSession(bakingFeeding);
     setStep(target);
   }
 
   function next() {
-    goTo(steps[stepIndex + 1] ?? 7);
+    goTo(steps[stepIndex + 1] ?? 'result');
   }
 
   const checkedFeedingId =
@@ -272,7 +297,7 @@ export function Assistant({
           setSkipCalculation(false);
           setSaved(false);
           setError('');
-          setStep(recoveredGoal === 'bake' ? 4 : 6);
+          setStep(recoveredGoal === 'bake' ? 'calculate' : 'activity');
         }}
       />
     );
@@ -289,7 +314,7 @@ export function Assistant({
               <Sprout size={15} />
               AQUÍ PARA AYUDARTE
             </span>
-            <Miga waving={step === 0} />
+            <Miga waving={step === 'storage'} />
             <h2>
               Sin prisas.
               <br />
@@ -312,15 +337,17 @@ export function Assistant({
         <section className="assistant-card" aria-live="polite">
           <div className="assistant-progress">
             <span>
-              {step < 7 ? 'Paso ' + (stepIndex + 1) + ' de ' + steps.length : 'Tu siguiente paso'}
+              {step !== 'result'
+                ? 'Paso ' + (stepIndex + 1) + ' de ' + steps.length
+                : 'Tu siguiente paso'}
             </span>
             <div role="group" aria-label="Ir a un paso">
               {steps.map((target, index) => (
                 <button
                   key={target}
                   type="button"
-                  className={index <= stepIndex || step === 7 ? 'filled' : ''}
-                  aria-label={'Paso ' + (index + 1) + ': ' + questions[target]}
+                  className={index <= stepIndex || step === 'result' ? 'filled' : ''}
+                  aria-label={'Paso ' + (index + 1) + ': ' + stepCopy[target].question}
                   aria-current={target === step ? 'step' : undefined}
                   onClick={() => goTo(target)}
                 />
@@ -330,16 +357,16 @@ export function Assistant({
               Empezar de nuevo
             </button>
           </div>
-          {step < 7 ? (
+          {step !== 'result' ? (
             <>
               <div className="assistant-question">
                 <span className="speech-label">MIGA DICE</span>
                 <h2 ref={headingRef} tabIndex={-1}>
-                  {questions[step]}
+                  {stepCopy[step].question}
                 </h2>
-                <p>{hints[step]}</p>
+                <p>{stepCopy[step].hint}</p>
               </div>
-              {step === 0 && (
+              {step === 'storage' && (
                 <div className="choice-grid two">
                   <button
                     className={`choice-card ${storage === 'fridge' ? 'selected' : ''}`}
@@ -363,7 +390,7 @@ export function Assistant({
                   </button>
                 </div>
               )}
-              {step === 2 && (
+              {step === 'date' && (
                 <div className="assistant-fields">
                   <label>
                     Último refresco
@@ -401,7 +428,7 @@ export function Assistant({
                   )}
                 </div>
               )}
-              {step === 1 && (
+              {step === 'safety' && (
                 <>
                   <div className="safety-choices">
                     {(
@@ -466,7 +493,7 @@ export function Assistant({
                   )}
                 </>
               )}
-              {step === 3 && (
+              {step === 'goal' && (
                 <>
                   <div className="choice-grid two">
                     <button
@@ -497,7 +524,7 @@ export function Assistant({
                   </div>
                 </>
               )}
-              {step === 4 && (
+              {step === 'calculate' && (
                 <Calculator
                   data={data}
                   update={update}
@@ -507,11 +534,11 @@ export function Assistant({
                   embedded
                 />
               )}
-              {step === 5 && timer && <BakingClock checkAt={timer.at} />}
-              {step === 5 && !timer && (
+              {step === 'clock' && timer && <BakingClock checkAt={timer.at} />}
+              {step === 'clock' && !timer && (
                 <Notice>Registra un refresco para volver a iniciar el reloj.</Notice>
               )}
-              {step === 6 && (
+              {step === 'activity' && (
                 <>
                   <p className="growth-legend">
                     <span aria-hidden="true" /> La línea discontinua indica el nivel tras el
@@ -585,7 +612,7 @@ export function Assistant({
                     Volver
                   </button>
                 )}
-                {step === 4 && !timer ? (
+                {step === 'calculate' && !timer ? (
                   <button
                     className="text-button"
                     onClick={() => {
@@ -597,7 +624,7 @@ export function Assistant({
                       }
                       setSkipCalculation(true);
                       setError('');
-                      setStep(6);
+                      setStep('activity');
                     }}
                   >
                     Ya la he refrescado
@@ -608,11 +635,11 @@ export function Assistant({
                     aria-disabled={selectionMissing || undefined}
                     onClick={next}
                   >
-                    {step === 6
+                    {step === 'activity'
                       ? 'Ver mi siguiente paso'
-                      : step === 5
+                      : step === 'clock'
                         ? 'Comprobar crecimiento'
-                        : step === 0 && stepIndex === 0
+                        : step === 'storage' && stepIndex === 0
                           ? 'Vamos allá'
                           : 'Continuar'}
                   </button>
@@ -648,11 +675,6 @@ export function Assistant({
                       Si ya la has refrescado y todavía no hay fermentación, observa su evolución y
                       temperatura antes de volver a alimentarla. Evita diluirla con refrescos
                       repetidos.
-                    </Notice>
-                  )}
-                  {activity === 'rising' && (
-                    <Notice>
-                      Si el refresco actual sigue creciendo, deja que madure antes de repetirlo.
                     </Notice>
                   )}
                   {activity === 'peak' && (
@@ -716,7 +738,13 @@ export function Assistant({
               <button
                 className="text-button"
                 onClick={() =>
-                  setStep(result.kind === 'discard' ? 1 : result.kind === 'out-of-scope' ? 2 : 6)
+                  setStep(
+                    result.kind === 'discard'
+                      ? 'safety'
+                      : result.kind === 'out-of-scope'
+                        ? 'date'
+                        : 'activity',
+                  )
                 }
               >
                 <ArrowLeft size={16} />
@@ -743,7 +771,7 @@ export function Assistant({
             setActivity(null);
             setSaved(false);
             setError('');
-            setStep(5);
+            setStep('clock');
           }}
         />
       )}
