@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal, Notice, inputDate } from './UI';
-import { isContaminated } from '../domain/starter';
-import type { Safety, StoragePlace } from '../domain/starter';
+import { bakingCheckAt, isContaminated } from '../domain/starter';
+import type { Feeding, Safety, StoragePlace } from '../domain/starter';
 import type { PageProps, FeedRequest } from '../types';
 export function FeedingModal({
   data,
@@ -9,12 +9,21 @@ export function FeedingModal({
   notify,
   request,
   onClose,
-}: PageProps & { request: FeedRequest; onClose: () => void }) {
+  onSaved,
+}: PageProps & {
+  request: FeedRequest;
+  onClose: () => void;
+  onSaved?: (feeding: Feeding) => void;
+}) {
   const [date, setDate] = useState(inputDate());
   const [starter, setStarter] = useState(String(request.starterG));
   const [water, setWater] = useState(String(request.waterG));
   const [flour, setFlour] = useState(String(request.flourG));
   const [temperature, setTemperature] = useState(String(data.starter.temperature));
+  const baking = request.bakingStarterActive !== undefined;
+  const recovery = request.recoveryStage ? data.recovery : undefined;
+  const recovering = request.recoveryStage !== undefined;
+  const atRoomTemperature = baking || recovering;
   const [storage, setStorage] = useState<StoragePlace>('room');
   const [notes, setNotes] = useState('');
   const [safety, setSafety] = useState<Safety>('unknown');
@@ -25,12 +34,18 @@ export function FeedingModal({
     e.preventDefault();
     setError('');
     if (blocked) return;
+    if (recovering && (!recovery || recovery.stage !== request.recoveryStage)) {
+      setError(
+        'El estado de recuperación ha cambiado. Cierra el formulario y vuelve a intentarlo.',
+      );
+      return;
+    }
     if (safety === 'unknown') {
       setError('Comprueba el aspecto y el olor antes de registrar el refresco.');
       return;
     }
     if (isContaminated(safety)) {
-      update({
+      const saveResult = update({
         ...data,
         observations: [
           {
@@ -47,7 +62,9 @@ export function FeedingModal({
           ...data.observations,
         ],
       });
-      notify('Señal de contaminación guardada. No refresques este cultivo.');
+      if (saveResult === 'blocked') return;
+      if (saveResult === 'saved')
+        notify('Señal de contaminación guardada. No refresques este cultivo.');
       onClose();
       return;
     }
@@ -59,12 +76,23 @@ export function FeedingModal({
       setError('Indica cantidades mayores que cero y una temperatura válida (hasta 45 °C).');
       return;
     }
+    if (
+      recovering &&
+      [water, flour].some(
+        (amount) => Math.abs(Number(amount) - Number(starter) * request.ratio) > 0.051,
+      )
+    ) {
+      setError(
+        'Ajusta el agua y la harina para respetar la proporción del refresco de recuperación.',
+      );
+      return;
+    }
     const time = new Date(date).getTime();
     if (!Number.isFinite(time) || time > Date.now()) {
       setError('Indica una fecha válida que no esté en el futuro.');
       return;
     }
-    const feeding = {
+    const feeding: Feeding = {
       id: crypto.randomUUID(),
       fedAt: new Date(date).toISOString(),
       ratio: request.ratio,
@@ -75,17 +103,41 @@ export function FeedingModal({
       storage,
       notes,
     };
+    if (baking && (safety === 'healthy' || safety === 'hooch')) {
+      feeding.bakingCheck = {
+        at: bakingCheckAt(feeding.fedAt, feeding.ratio, request.bakingStarterActive === true),
+        safety,
+      };
+    }
     const latest = !data.starter.lastFedAt || time >= Date.parse(data.starter.lastFedAt);
-    update({
+    const storageChangedAt = data.starter.storageChangedAt;
+    const afterStorageChange =
+      !storageChangedAt ||
+      Math.floor(time / 60_000) >= Math.floor(Date.parse(storageChangedAt) / 60_000);
+    if (atRoomTemperature && (!latest || !afterStorageChange)) {
+      setError('Indica la hora del refresco más reciente, con la masa a temperatura ambiente.');
+      return;
+    }
+    const saveResult = update({
       ...data,
       starter: latest
-        ? { ...data.starter, lastFedAt: feeding.fedAt, storage, temperature: Number(temperature) }
+        ? {
+            ...data.starter,
+            lastFedAt: feeding.fedAt,
+            temperature: feeding.temperature,
+            ...(afterStorageChange && { storage, storageChangedAt: feeding.fedAt }),
+          }
         : data.starter,
+      ...(recovery && {
+        recovery: { ...recovery, stage: 'observe' as const, feedingId: feeding.id },
+      }),
       feedings: [feeding, ...data.feedings].sort(
         (a, b) => Date.parse(b.fedAt) - Date.parse(a.fedAt),
       ),
     });
-    notify('Refresco guardado. Ahora toca observar su evolución.');
+    if (saveResult === 'blocked') return;
+    onSaved?.(feeding);
+    if (saveResult === 'saved') notify('Refresco guardado. Ahora toca observar su evolución.');
     onClose();
   }
   return (
@@ -145,7 +197,7 @@ export function FeedingModal({
         </div>
         <div className="form-two">
           <label>
-            Temperatura (°C)
+            Temperatura para fermentar (°C)
             <input
               type="number"
               min="1"
@@ -156,13 +208,15 @@ export function FeedingModal({
               onChange={(e) => setTemperature(e.target.value)}
             />
           </label>
-          <label>
-            Después del refresco
-            <select value={storage} onChange={(e) => setStorage(e.target.value as StoragePlace)}>
-              <option value="room">Fermentación a temperatura ambiente</option>
-              <option value="fridge">Nevera, tras el arranque</option>
-            </select>
-          </label>
+          {!atRoomTemperature && (
+            <label>
+              ¿Dónde la has dejado?
+              <select value={storage} onChange={(e) => setStorage(e.target.value as StoragePlace)}>
+                <option value="room">A temperatura ambiente</option>
+                <option value="fridge">En la nevera</option>
+              </select>
+            </label>
+          )}
         </div>
         {storage === 'fridge' && (
           <Notice>

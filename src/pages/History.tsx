@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, History as HistoryIcon, Droplets, Sprout, Clock3, Thermometer } from 'lucide-react';
+import { Plus, Droplets, Sprout, Clock3, Thermometer } from 'lucide-react';
 import { PageTitle, Notice, Modal, dateLabel, inputDate, grams } from '../components/UI';
 import type { PageProps } from '../types';
 import { isContaminated } from '../domain/starter';
@@ -39,7 +39,7 @@ export function History({ data, update, notify, navigate }: PageProps) {
     unknown: 'Sin actividad definida',
     quiet: 'Poca actividad',
     rising: 'Está creciendo',
-    peak: 'Cerca del pico',
+    peak: 'En el pico',
     fallen: 'Ha subido y bajado',
   };
   const safetyLabels: Record<Safety, string> = {
@@ -103,29 +103,13 @@ export function History({ data, update, notify, navigate }: PageProps) {
         </button>
       </div>
       <div className="history-summary">
-        <div>
-          <span className="quick-icon mint">
-            <HistoryIcon />
-          </span>
-          <strong>{data.feedings.length}</strong>
-          <span>refrescos registrados</span>
-        </div>
-        <div>
-          <span className="quick-icon wheat">
-            <Sprout />
-          </span>
-          <strong>{data.observations.length}</strong>
-          <span>momentos observados</span>
-        </div>
-        <div>
-          <span className="quick-icon peach">
-            <Clock3 />
-          </span>
-          <strong>
-            {data.starter.lastFedAt ? dateLabel(data.starter.lastFedAt) : 'Aún por empezar'}
-          </strong>
-          <span>último refresco indicado</span>
-        </div>
+        <span className="quick-icon peach">
+          <Clock3 />
+        </span>
+        <strong>
+          {data.starter.lastFedAt ? dateLabel(data.starter.lastFedAt) : 'Aún por empezar'}
+        </strong>
+        <span>último refresco indicado</span>
       </div>
       <div className="tab-bar" role="tablist" aria-label="Filtrar historial">
         {(
@@ -220,10 +204,12 @@ export function History({ data, update, notify, navigate }: PageProps) {
           </button>
         </div>
       )}
-      <Notice>
-        Estas son tus observaciones, no un diagnóstico automático. Un registro cerca del pico no
-        confirma por sí solo que el cultivo esté listo para hornear.
-      </Notice>
+      {tab === 'observations' && (
+        <Notice>
+          Aquí guardas cómo ha crecido tu masa madre, qué aspecto tiene y cómo huele. Para saber si
+          está lista para hornear, comprueba que crece con vigor de forma repetida.
+        </Notice>
+      )}
       {open && (
         <Modal title="Una mirada a tu masa madre" onClose={() => setOpen(false)}>
           <form onSubmit={save} className="form-stack">

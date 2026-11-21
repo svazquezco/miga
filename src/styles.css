@@ -149,14 +149,6 @@ a svg {
   margin: 16px 0 46px 10px;
   color: #6d7b6b;
 }
-.nav-caption {
-  display: block;
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
-  color: #818b7b;
-  font-weight: 600;
-  margin: 0 14px 15px;
-}
 .sidebar nav {
   display: flex;
   flex-direction: column;
@@ -360,8 +352,24 @@ main {
 }
 .hero-copy h2 {
   font-size: 1.6rem;
-  margin: 10px 0 13px;
+  margin: 0;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.hero-cultivation-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  margin-top: 5px;
+}
+.hero-cultivation-name .text-button {
+  min-height: 44px;
+}
+.hero-last-feeding {
+  margin-bottom: 10px;
+  font-size: 0.875rem;
+  line-height: 1.4;
 }
 .state-chip {
   display: inline-flex;
@@ -530,12 +538,9 @@ main {
   font-size: 1.45rem;
   margin: 2px 0 7px;
 }
-.miga-invite p {
-  font-size: 0.79rem;
-  max-width: 230px;
-  margin: 0 auto 15px;
-  line-height: 1.6;
-  color: #8a8066;
+.miga-actions {
+  display: grid;
+  gap: 8px;
 }
 .miga-invite .secondary {
   width: 100%;
@@ -582,42 +587,6 @@ main {
   50% {
     transform: translateY(1px);
   }
-}
-.cultivation-facts {
-  grid-column: 1/-1;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  background: #fffefa;
-  padding: 19px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 15px;
-}
-.cultivation-facts > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.fact-icon {
-  color: #6e8662;
-  background: #f0f3e9;
-  border-radius: 10px;
-  width: 37px;
-  height: 37px;
-  display: grid;
-  place-items: center;
-}
-.cultivation-facts small {
-  display: block;
-  font-size: 0.66rem;
-  color: #88907f;
-  margin-bottom: 3px;
-}
-.cultivation-facts strong {
-  display: block;
-  font-size: 0.77rem;
-  font-weight: 550;
 }
 .text-button {
   background: transparent;
@@ -711,39 +680,6 @@ main {
   font-weight: 600;
   margin-top: 16px;
 }
-.home-bottom {
-  display: grid;
-  grid-template-columns: 2.2fr 1fr;
-  gap: 19px;
-  margin-top: 24px;
-}
-.tip-card {
-  border-radius: 16px;
-  background: #eef0e4;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 21px 24px;
-}
-.tip-doodle {
-  color: #82a06b;
-}
-.tip-card .eyebrow {
-  font-size: 0.58rem;
-  letter-spacing: 0.1em;
-}
-.tip-card h3 {
-  font-size: 0.89rem;
-  margin: 5px 0 7px;
-}
-.tip-card p {
-  font-size: 0.74rem;
-  line-height: 1.6;
-  max-width: 440px;
-}
-.tip-card > .icon-button {
-  margin-left: auto;
-}
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -760,6 +696,7 @@ main {
 }
 .add-observation {
   display: flex;
+  margin: 24px 0 0 auto;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
@@ -1345,9 +1282,11 @@ main {
 .assistant-progress {
   display: flex;
   align-items: center;
-  gap: 14px;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 4px;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 18px;
+  padding-bottom: 14px;
   margin-bottom: 30px;
 }
 .assistant-progress > span {
@@ -1357,20 +1296,36 @@ main {
 }
 .assistant-progress > div {
   display: flex;
+  flex: 1 1 auto;
   gap: 4px;
 }
-.assistant-progress > div > span {
-  height: 4px;
-  width: 22px;
-  background: #e4e8db;
-  border-radius: 2px;
+.assistant-progress > div > button {
+  display: flex;
+  align-items: center;
+  flex: 1 0 14px;
+  max-width: 34px;
+  min-height: 36px;
+  padding: 0;
+  background: transparent;
 }
-.assistant-progress > div > .filled {
+.assistant-progress > div > button::after {
+  content: '';
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: #d2d9c9;
+}
+.assistant-progress > div > .filled::after,
+.assistant-progress > div > button:hover::after {
   background: #799965;
+}
+.assistant-progress > div > button[aria-current='step']::after {
+  background: var(--green);
 }
 .assistant-progress > .text-button {
   margin-left: auto;
-  font-size: 0.65rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 .speech-label {
   font-size: 0.6rem;
@@ -1452,6 +1407,12 @@ main {
   border-top: 1px solid var(--line);
   margin-top: 30px;
   padding-top: 24px;
+}
+.assistant-actions .primary[aria-disabled='true'],
+.assistant-actions .primary[aria-disabled='true']:hover {
+  background: #e7eddf;
+  color: #526448;
+  box-shadow: none;
 }
 .assistant-actions .primary {
   margin-left: auto;
@@ -1759,6 +1720,40 @@ textarea::placeholder {
   color: #83956e;
   margin: 12px 0 25px;
 }
+.calculator-timing {
+  border-top: 1px solid #dce6cb;
+  padding-top: 12px;
+  margin-bottom: 25px;
+}
+.calculator-timing .segmented {
+  gap: 4px;
+  margin: 0 0 12px;
+  background: #f8faf2;
+}
+.calculator-timing .segmented button {
+  flex: 1;
+  justify-content: center;
+  min-height: 44px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.calculator-timing-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.875rem;
+}
+.calculator-timing-row strong {
+  font-size: 1.1rem;
+  white-space: nowrap;
+}
+.calculator-timing > p {
+  margin-top: 6px;
+  color: #526448;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
 .stack-actions {
   display: flex;
   flex-direction: column;
@@ -1771,34 +1766,22 @@ textarea::placeholder {
   margin-top: 20px;
 }
 .history-summary {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1.35fr;
-  gap: 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px 12px;
+  flex-wrap: wrap;
   margin: 5px 0 28px;
-}
-.history-summary > div {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #fffefa;
-  padding: 20px;
-  display: grid;
-  grid-template-columns: 45px 1fr;
-  gap: 4px 14px;
-  align-items: center;
-}
-.history-summary .quick-icon {
-  grid-row: 1/3;
+  padding: 16px 20px;
 }
 .history-summary strong {
-  font-size: 1.3rem;
-  font-family: 'Manrope Variable', sans-serif;
-  letter-spacing: -0.04em;
-}
-.history-summary > div:last-child strong {
   font-size: 0.85rem;
-  letter-spacing: 0;
+  font-family: 'Manrope Variable', sans-serif;
 }
-.history-summary > div > span:last-child {
+.history-summary > span:last-child {
+  margin-left: auto;
   font-size: 0.71rem;
   color: #929b86;
 }
@@ -2113,13 +2096,6 @@ textarea::placeholder {
   .quick-content h3 {
     font-size: 0.88rem;
   }
-  .cultivation-facts {
-    padding: 17px 18px;
-    flex-wrap: wrap;
-  }
-  .cultivation-facts > .text-button {
-    font-size: 0.68rem;
-  }
   .assistant-layout {
     grid-template-columns: 220px 1fr;
     gap: 22px;
@@ -2204,10 +2180,6 @@ textarea::placeholder {
     gap: 10px;
     padding: 12px;
   }
-  .sidebar .nav-caption {
-    font-size: 0.55rem;
-    letter-spacing: 0.09em;
-  }
   .sidebar-bottom a {
     font-size: 0.73rem;
   }
@@ -2249,27 +2221,6 @@ textarea::placeholder {
   }
   .hero-illustration .jar-art {
     width: 207px;
-  }
-  .miga-invite {
-    display: none;
-  }
-  .cultivation-facts {
-    gap: 17px 10px;
-  }
-  .cultivation-facts > div {
-    gap: 8px;
-  }
-  .cultivation-facts small {
-    font-size: 0.6rem;
-  }
-  .cultivation-facts strong {
-    font-size: 0.7rem;
-  }
-  .cultivation-facts > .text-button {
-    display: none;
-  }
-  .home-bottom {
-    grid-template-columns: 1fr;
   }
   .add-observation {
     display: none;
@@ -2382,25 +2333,6 @@ textarea::placeholder {
   .scale-icon {
     display: none;
   }
-  .history-summary {
-    gap: 10px;
-  }
-  .history-summary > div {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 16px;
-  }
-  .history-summary .quick-icon {
-    display: none;
-  }
-  .history-summary > div > span:last-child {
-    flex-basis: 100%;
-    font-size: 0.65rem;
-  }
-  .history-summary > div:last-child strong {
-    font-size: 0.72rem;
-  }
   .page-heading-row {
     align-items: flex-start;
     flex-direction: column;
@@ -2444,9 +2376,6 @@ textarea::placeholder {
   }
   .sidebar nav {
     margin-top: 10px;
-  }
-  .sidebar .nav-caption {
-    font-size: 0.65rem;
   }
   .sidebar nav > a {
     font-size: 0.9rem;
@@ -2549,31 +2478,6 @@ textarea::placeholder {
   .handwritten {
     font-size: 0.65rem;
   }
-  .cultivation-facts {
-    padding: 17px 16px;
-    gap: 17px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    border-radius: 15px;
-  }
-  .cultivation-facts > div:last-of-type {
-    grid-column: 1/-1;
-    border-top: 1px solid var(--line);
-    padding-top: 14px;
-  }
-  .cultivation-facts strong {
-    font-size: 0.75rem;
-  }
-  .cultivation-facts small {
-    font-size: 0.63rem;
-  }
-  .cultivation-facts > .text-button {
-    display: flex;
-    position: absolute;
-    right: 38px;
-    margin-top: 80px;
-    font-size: 0.69rem;
-  }
   .section-heading {
     margin: 28px 0 17px;
   }
@@ -2609,27 +2513,6 @@ textarea::placeholder {
   .quick-content .card-link {
     font-size: 0.72rem;
     margin-top: 11px;
-  }
-  .home-bottom {
-    margin-top: 19px;
-  }
-  .tip-card {
-    padding: 20px 17px;
-    gap: 13px;
-  }
-  .tip-doodle > svg {
-    width: 27px;
-  }
-  .tip-card h3 {
-    font-size: 0.84rem;
-    line-height: 1.5;
-  }
-  .tip-card p {
-    font-size: 0.72rem;
-  }
-  .tip-card .icon-button {
-    min-width: 24px;
-    padding: 0;
   }
   .scope-line {
     font-size: 0.61rem;
@@ -2689,6 +2572,16 @@ textarea::placeholder {
   .tab-bar {
     max-width: 100%;
     margin-bottom: 25px;
+  }
+  .guide-topics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+  }
+  .guide-topics button {
+    white-space: normal;
+    min-height: 40px;
   }
   .tab-bar button {
     font-size: 0.72rem;
@@ -2814,17 +2707,6 @@ textarea::placeholder {
   .assistant-progress > span {
     font-size: 0.65rem;
   }
-  .assistant-progress > div {
-    gap: 3px;
-  }
-  .assistant-progress > div > span {
-    width: 16px;
-  }
-  .assistant-progress > .text-button {
-    font-size: 0.58rem;
-    max-width: 75px;
-    text-align: right;
-  }
   .assistant-question h2,
   .assistant-result > h2 {
     font-size: 1.4rem;
@@ -2928,24 +2810,8 @@ textarea::placeholder {
   .calculator-form > label {
     margin: 21px 0;
   }
-  .history-summary {
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .history-summary > div:last-child {
-    grid-column: 1/-1;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .history-summary > div:last-child > span {
-    flex-basis: auto;
-  }
-  .history-summary > div:last-child strong {
-    font-size: 0.8rem;
-  }
-  .history-summary > div > span:last-child {
-    font-size: 0.69rem;
+  .history-summary .quick-icon {
+    display: none;
   }
   .history-entry {
     padding: 17px 14px;
@@ -3079,9 +2945,6 @@ textarea::placeholder {
   .choice-card {
     padding: 20px 11px;
   }
-  .assistant-progress > div > span {
-    width: 12px;
-  }
   .tab-bar button {
     font-size: 0.68rem;
     padding: 9px 10px;
@@ -3124,9 +2987,7 @@ label,
   font-size: 0.875rem;
 }
 .hero-copy p,
-.miga-invite p,
 .quick-content p,
-.tip-card p,
 .protocol-detail > p,
 .step-list p,
 .factor-list p,
@@ -3138,12 +2999,10 @@ label,
 .settings-side p {
   font-size: 0.875rem;
 }
-.cultivation-facts small,
 .protocol-meta,
 .entry-heading time {
   font-size: 0.8rem;
 }
-.cultivation-facts strong,
 .card-link,
 .quick-content .card-link,
 .activity-choice strong,
@@ -3162,7 +3021,7 @@ label small,
 .flow-stage .card-link {
   font-size: 0.75rem;
 }
-@media (max-width: 760px) {
+@media (max-width: 1000px) {
   .miga-invite {
     display: grid;
     grid-template-columns: 82px 1fr;
@@ -3185,20 +3044,18 @@ label small,
     font-size: 1.1rem;
     margin: 0;
   }
-  .miga-invite p {
+  .miga-actions {
     grid-column: 2;
-    max-width: none;
-    margin: 0;
-    font-size: 0.8125rem;
+    margin-top: 6px;
   }
   .miga-invite .secondary {
-    grid-column: 2;
     justify-content: flex-start;
     min-height: 38px;
     padding: 8px 11px;
-    margin-top: 6px;
     font-size: 0.8125rem;
   }
+}
+@media (max-width: 760px) {
   .hero-copy .primary {
     font-size: 0.75rem;
   }
@@ -3207,15 +3064,6 @@ label small,
   }
   .hero-copy h2 {
     font-size: 1.4rem;
-  }
-  .cultivation-facts small {
-    font-size: 0.75rem;
-  }
-  .cultivation-facts strong {
-    font-size: 0.8125rem;
-  }
-  .cultivation-facts > .text-button {
-    font-size: 0.75rem;
   }
   .assistant-companion p {
     font-size: 0.8125rem;
@@ -3230,52 +3078,6 @@ label small,
   }
   .assistant-progress > span {
     font-size: 0.75rem;
-  }
-}
-
-.review-strip {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px 24px;
-  background: #f9f1dd;
-  border: 1px solid #eee3c3;
-  border-radius: 16px;
-  margin-top: 20px;
-  color: #9b823d;
-}
-.review-strip h3 {
-  font-size: 1rem;
-  margin: 6px 0;
-}
-.review-strip p {
-  font-size: 0.875rem;
-  line-height: 1.7;
-  color: #8b805e;
-}
-.review-strip .eyebrow {
-  color: #978545;
-  font-size: 0.65rem;
-}
-.review-strip > .text-button {
-  flex-shrink: 0;
-  margin-left: auto;
-}
-@media (max-width: 760px) {
-  .review-strip {
-    flex-wrap: wrap;
-    padding: 20px;
-    gap: 12px;
-  }
-  .review-strip > div {
-    flex: 1;
-    min-width: 180px;
-  }
-  .review-strip > .text-button {
-    margin-left: 33px;
-  }
-  .review-strip h3 {
-    font-size: 0.94rem;
   }
 }
 
@@ -3331,18 +3133,6 @@ label small,
   }
 }
 
-.tip-card {
-  cursor: pointer;
-  transition: background 0.18s;
-}
-.tip-card:hover {
-  background: #e5ebd9;
-}
-.tip-chevron {
-  margin-left: auto;
-  color: #58734d;
-  display: flex;
-}
 .growth-legend {
   display: flex;
   gap: 9px;
@@ -3475,4 +3265,52 @@ label small,
 .assistant-question h2:focus,
 .assistant-result > h2:focus {
   outline: none;
+}
+
+.embedded-calculator {
+  margin-top: 20px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.baking-clock {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 18px;
+  background: #eef2e7;
+  color: #345b37;
+  border: 1px solid #dce6d4;
+  border-radius: 12px;
+}
+.baking-clock svg {
+  flex: none;
+}
+.baking-clock strong {
+  font-size: 1.15rem;
+}
+.baking-clock p {
+  margin-top: 6px;
+  font-size: 0.875rem;
+}
+
+.hero-storage-actions {
+  display: grid;
+  justify-items: start;
+  margin: 7px 0 12px;
+}
+.hero-storage-actions .text-button {
+  text-align: left;
+}
+.recovery-card {
+  max-width: 680px;
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+.recovery-card h2,
+.recovery-card p {
+  margin: 0;
+}
+.recovery-card p {
+  line-height: 1.65;
 }
