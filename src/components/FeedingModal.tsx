@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Modal, Notice, inputDate } from './UI';
-import { bakingCheckAt, isContaminated } from '../domain/starter';
+import { bakingCheckAt, feedingBlock, feedingTiming, isContaminated } from '../domain/starter';
 import type { Feeding, Safety, StoragePlace } from '../domain/starter';
 import type { PageProps, FeedRequest } from '../types';
 export function FeedingModal({
@@ -28,9 +28,9 @@ export function FeedingModal({
   const [notes, setNotes] = useState('');
   const [safety, setSafety] = useState<Safety>('unknown');
   const [error, setError] = useState('');
-  const blocked =
-    data.starter.hydration !== 100 || data.observations.some((o) => isContaminated(o.safety));
-  function save(e: React.SubmitEvent<HTMLFormElement>) {
+  const { blocked } = feedingBlock(data);
+  const amounts = { starterG: Number(starter), waterG: Number(water), flourG: Number(flour) };
+  async function save(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
     if (blocked) return;
@@ -45,22 +45,19 @@ export function FeedingModal({
       return;
     }
     if (isContaminated(safety)) {
-      const saveResult = update({
-        ...data,
-        observations: [
-          {
-            id: crypto.randomUUID(),
-            observedAt: new Date().toISOString(),
-            safety,
-            activity: 'unknown',
-            rise: null,
-            peakHours: null,
-            bubbles: false,
-            aroma: safety === 'rotten' ? 'Putrefacto' : '',
-            notes: 'Señal de contaminación detectada antes de un refresco.',
-          },
-          ...data.observations,
-        ],
+      const saveResult = await update({
+        type: 'observation',
+        observation: {
+          id: crypto.randomUUID(),
+          observedAt: new Date().toISOString(),
+          safety,
+          activity: 'unknown',
+          rise: null,
+          peakHours: null,
+          bubbles: false,
+          aroma: safety === 'rotten' ? 'Putrefacto' : '',
+          notes: 'Señal de contaminación detectada antes de un refresco.',
+        },
       });
       if (saveResult === 'blocked') return;
       if (saveResult === 'saved')
@@ -96,9 +93,7 @@ export function FeedingModal({
       id: crypto.randomUUID(),
       fedAt: new Date(date).toISOString(),
       ratio: request.ratio,
-      starterG: Number(starter),
-      waterG: Number(water),
-      flourG: Number(flour),
+      ...amounts,
       temperature: Number(temperature),
       storage,
       notes,
@@ -109,31 +104,15 @@ export function FeedingModal({
         safety,
       };
     }
-    const latest = !data.starter.lastFedAt || time >= Date.parse(data.starter.lastFedAt);
-    const storageChangedAt = data.starter.storageChangedAt;
-    const afterStorageChange =
-      !storageChangedAt ||
-      Math.floor(time / 60_000) >= Math.floor(Date.parse(storageChangedAt) / 60_000);
-    if (atRoomTemperature && (!latest || !afterStorageChange)) {
+    const { latest, afterMove } = feedingTiming(data.starter, feeding.fedAt);
+    if (atRoomTemperature && (!latest || !afterMove)) {
       setError('Indica la hora del refresco más reciente, con la masa a temperatura ambiente.');
       return;
     }
-    const saveResult = update({
-      ...data,
-      starter: latest
-        ? {
-            ...data.starter,
-            lastFedAt: feeding.fedAt,
-            temperature: feeding.temperature,
-            ...(afterStorageChange && { storage, storageChangedAt: feeding.fedAt }),
-          }
-        : data.starter,
-      ...(recovery && {
-        recovery: { ...recovery, stage: 'observe' as const, feedingId: feeding.id },
-      }),
-      feedings: [feeding, ...data.feedings].sort(
-        (a, b) => Date.parse(b.fedAt) - Date.parse(a.fedAt),
-      ),
+    const saveResult = await update({
+      type: 'feeding',
+      feeding,
+      recoveryStage: request.recoveryStage,
     });
     if (saveResult === 'blocked') return;
     onSaved?.(feeding);
@@ -255,7 +234,12 @@ export function FeedingModal({
             {error}
           </p>
         )}
-        <button className="primary" type="submit" disabled={blocked}>
+        <button
+          className="primary"
+          type="submit"
+          disabled={blocked}
+          formNoValidate={isContaminated(safety)}
+        >
           {isContaminated(safety) ? 'Guardar señal de contaminación' : 'Guardar refresco realizado'}
         </button>
       </form>
