@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Check, X, Info } from 'lucide-react';
+import { X, Info } from 'lucide-react';
 export function Notice({ children, danger = false }: { children: ReactNode; danger?: boolean }) {
   return (
     <div className={`notice ${danger ? 'danger' : ''}`}>
@@ -87,14 +87,6 @@ export function RatioBadge({ n }: { n: number }) {
   return (
     <span className="ratio-badge">
       1 : {n} : {n}
-    </span>
-  );
-}
-export function CheckLabel({ children }: { children: ReactNode }) {
-  return (
-    <span className="check-label">
-      <Check size={15} />
-      {children}
     </span>
   );
 }
