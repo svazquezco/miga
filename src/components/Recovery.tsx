@@ -69,15 +69,15 @@ export function Recovery({
           <>
             <h2>Haz un primer refresco</h2>
             <p>
-              Si solo hay líquido gris o marrón y antes crecía bien, puedes empezar con 1:2:2. Si
-              está muy débil, empieza con 1:1:1. Marca el nivel y déjala a temperatura ambiente.
+              Si solo hay líquido gris o marrón y antes crecía bien, puedes empezar con 1:2:2. Marca
+              el nivel y déjala a temperatura ambiente.
             </p>
             <button className="primary" onClick={() => register(2)}>
               Registrar refresco 1:2:2
             </button>
-            <button className="secondary" onClick={() => register(1)}>
-              Registrar refresco 1:1:1
-            </button>
+            <a className="secondary" href="#calculator/recovery">
+              Personalizar refresco
+            </a>
           </>
         ) : plan.stage === 'feed' ? (
           <>
@@ -137,7 +137,7 @@ export function Recovery({
             </button>
           </>
         )}
-        <button className="text-button" onClick={onCancel}>
+        <button className="text-button recovery-exit" onClick={onCancel}>
           Salir de la recuperación
         </button>
       </section>

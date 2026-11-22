@@ -1,82 +1,54 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SubmitEvent } from 'react';
-import { BookOpen, Sparkles, Plus, Calculator, Leaf, ChevronRight, RefreshCw } from 'lucide-react';
+import { BookOpen, Plus, Calculator, Leaf, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { Jar, Miga } from '../components/Illustrations';
 import { dateLabel, inputDate, Modal } from '../components/UI';
 import {
-  atRoomSinceFeeding,
   feedingBlock,
-  latestBakingFeeding,
-  latestFeeding,
+  feedingMaintenanceMessages,
+  feedingMaintenanceStatus,
 } from '../domain/starter';
-import type { StoragePlace } from '../domain/starter';
 import type { PageProps } from '../types';
 export function Home({ data, navigate, update }: PageProps) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<'details' | 'date' | null>(null);
   const editButton = useRef<HTMLButtonElement>(null);
+  const addDateButton = useRef<HTMLButtonElement>(null);
 
   function closeEditor() {
-    setEditing(false);
-    editButton.current?.focus();
+    const returnToDate = editing === 'date';
+    setEditing(null);
+    requestAnimationFrame(() => {
+      const trigger = (returnToDate && addDateButton.current) || editButton.current;
+      trigger?.focus();
+    });
   }
 
   const last = data.starter.lastFedAt;
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!last) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [last]);
+  const currentTime = Math.max(Date.now(), now);
+  const maintenanceStatus = feedingMaintenanceStatus(
+    last && Date.parse(last) <= currentTime ? last : null,
+    currentTime,
+  );
+  const maintenance = feedingMaintenanceMessages[maintenanceStatus];
   const movedAt = data.starter.storageChangedAt;
-  const latest = latestFeeding(data);
   const trackingSince = Math.max(last ? Date.parse(last) : 0, movedAt ? Date.parse(movedAt) : 0);
   const observation = data.observations.find(
     (entry) =>
       Math.floor(Date.parse(entry.observedAt) / 60_000) >= Math.floor(trackingSince / 60_000),
   );
   const unsafe = Boolean(feedingBlock(data).contamination);
-  const knownLocation = Boolean(movedAt || latest);
-  const inFridge = knownLocation && data.starter.storage === 'fridge';
-  const fermenting = latest && atRoomSinceFeeding(data.starter, latest);
-  const review =
-    unsafe || inFridge || data.recovery ? undefined : latestBakingFeeding(data)?.bakingCheck;
-  const activityLabels = {
-    peak: 'En el pico',
-    rising: 'Está creciendo',
-    fallen: 'Después del pico',
-    quiet: 'Aún sin subida',
-    unknown: '',
-  };
-  const activityLabel = observation ? activityLabels[observation.activity] : '';
-  const status = unsafe
-    ? 'Revisa su seguridad'
-    : inFridge
-      ? 'En la nevera'
-      : activityLabel ||
-        (fermenting
-          ? 'Fermentando'
-          : knownLocation
-            ? 'A temperatura ambiente'
-            : 'Crecimiento sin registrar');
-  const statusSince = inFridge
-    ? movedAt
-    : activityLabel
-      ? observation?.observedAt
-      : fermenting
-        ? latest.fedAt
-        : movedAt;
-
-  function changeStorage(storage: StoragePlace) {
-    void update({
-      type: 'starter',
-      changes: { storage, storageChangedAt: new Date().toISOString() },
-    });
-  }
   return (
     <>
       <header className="home-heading">
         <div>
-          <span className="eyebrow">
-            <span className="tiny-sun">✳</span> UN POQUITO DE CUIDADO, MUCHA VIDA
-          </span>
           <h1>
-            Tu masa madre,
-            <br />
-            <span>en buenas manos.</span>
+            Tu masa madre, <span>en buenas manos.</span>
           </h1>
           <p>Aprende a escucharla. Miga te acompaña.</p>
         </div>
@@ -88,107 +60,71 @@ export function Home({ data, navigate, update }: PageProps) {
           </span>
         </div>
       </header>
-      <div className="home-grid">
-        <section className="starter-hero">
-          <div className="hero-copy">
-            <span className="overline">TU PEQUEÑO CULTIVO</span>
-            <div className="hero-cultivation-name">
-              <h2>{data.starter.name}</h2>
-              <button
-                className="text-button"
-                ref={editButton}
-                aria-label="Editar mi masa madre"
-                onClick={() => setEditing(true)}
-              >
-                Editar
-              </button>
-            </div>
-            <div className="hero-last-feeding">
-              {last ? (
-                <>
-                  Último refresco: <time dateTime={last}>{dateLabel(last)}</time>
-                </>
-              ) : (
-                'Sin fecha de refresco'
-              )}
-            </div>
-            <span className={`state-chip ${unsafe ? 'unsafe' : ''}`}>
-              <span />
-              {status}
-            </span>
-            {statusSince && !unsafe && (
-              <div className="hero-last-feeding">
-                Desde el <time dateTime={statusSince}>{dateLabel(statusSince)}</time>
-              </div>
-            )}
-            {unsafe && (
-              <p>Hay una señal de contaminación registrada. No refresques este cultivo.</p>
-            )}
-            {!unsafe && (
-              <div className="hero-storage-actions">
-                {(!knownLocation || !inFridge) && (
-                  <button className="text-button" onClick={() => changeStorage('fridge')}>
-                    Guardar en la nevera
-                  </button>
-                )}
-                {(!knownLocation || inFridge) && (
-                  <button className="text-button" onClick={() => changeStorage('room')}>
-                    Dejar a temperatura ambiente
-                  </button>
-                )}
-              </div>
-            )}
-            <button className="primary" onClick={() => navigate('assistant')}>
-              <Sparkles size={18} />
-              {data.recovery && !unsafe && data.starter.hydration === 100
-                ? 'Continuar recuperación'
-                : review
-                  ? Date.parse(review.at) <= Date.now()
-                    ? 'Revisar actividad'
-                    : 'Revisar el ' + dateLabel(review.at)
-                  : 'Ver qué necesita'}
+      <section className="starter-hero">
+        <div className="hero-copy">
+          <span className="overline">TU PEQUEÑO CULTIVO</span>
+          <div className="hero-cultivation-name">
+            <h2>{data.starter.name}</h2>
+            <button
+              className="text-button"
+              ref={editButton}
+              aria-label="Editar mi masa madre"
+              onClick={() => setEditing('details')}
+            >
+              Editar
             </button>
           </div>
-          <div className="hero-illustration">
-            <span className="art-orbit" />
-            <Jar
-              state={
-                unsafe
-                  ? 'unsafe'
-                  : observation?.safety === 'hooch'
-                    ? 'hooch'
-                    : observation?.activity === 'peak' || observation?.activity === 'rising'
-                      ? 'active'
-                      : 'quiet'
-              }
-            />
-            <span className="handwritten">pequeña, pero viva</span>
-          </div>
-          <span className="hero-leaf leaf-one" />
-          <span className="hero-leaf leaf-two" />
-        </section>
-        <section className="miga-invite">
-          <div className="miga-invite-top">
-            <span className="mini-label">
-              <Sparkles size={14} />
-              TU COMPAÑERA
-            </span>
-            <span className="hello-tag">¡Hola!</span>
-          </div>
-          <Miga waving />
-          <h2>¿Qué quieres hacer hoy?</h2>
-          <div className="miga-actions">
-            <a className="secondary" href="#assistant/bake">
-              Quiero hacer pan <ChevronRight size={17} />
-            </a>
-            <a className="secondary" href="#assistant/maintain">
-              Quiero refrescar mi masa <ChevronRight size={17} />
-            </a>
-          </div>
-        </section>
-      </div>
-      {editing && <EditCultivation data={data} update={update} onClose={closeEditor} />}
-      <section className="explore-section">
+          {!last || maintenanceStatus === 'unknown' ? (
+            <button
+              className="text-button"
+              type="button"
+              ref={addDateButton}
+              onClick={() => setEditing('date')}
+            >
+              Añadir fecha del último refresco
+            </button>
+          ) : (
+            <>
+              <div className="hero-last-feeding">
+                Último refresco: <time dateTime={last}>{dateLabel(last)}</time>
+              </div>
+              {!unsafe && (
+                <div className="hero-culture-status">
+                  Estado de mantenimiento: <strong>{maintenance.title}</strong>
+                  <p className="hero-maintenance-recommendation">{maintenance.text}</p>
+                </div>
+              )}
+            </>
+          )}
+          {unsafe && <p>Hay una señal de contaminación registrada. No refresques este cultivo.</p>}
+        </div>
+        <div className="hero-illustration">
+          <span className="art-orbit" />
+          <Jar
+            state={
+              unsafe
+                ? 'unsafe'
+                : observation?.safety === 'hooch'
+                  ? 'hooch'
+                  : observation?.activity === 'peak' || observation?.activity === 'rising'
+                    ? 'active'
+                    : 'quiet'
+            }
+          />
+          <span className="handwritten">pequeña, pero viva</span>
+        </div>
+        <span className="hero-leaf leaf-one" />
+        <span className="hero-leaf leaf-two" />
+      </section>
+      {editing && (
+        <EditCultivation
+          data={data}
+          update={update}
+          onClose={closeEditor}
+          focusDate={editing === 'date'}
+        />
+      )}
+      <section>
         <div className="section-heading">
           <div>
             <span className="eyebrow">A TU RITMO</span>
@@ -248,7 +184,96 @@ export function Home({ data, navigate, update }: PageProps) {
         <Leaf size={14} /> Para masa madre madura de trigo al 100 % de hidratación. Los tiempos
         orientan; la actividad decide.
       </p>
+      <HomeActions enabled={!editing} />
     </>
+  );
+}
+
+function HomeActions({ enabled }: { enabled: boolean }) {
+  const [open, setOpen] = useState<'manual' | 'automatic' | null>(null);
+  const offered = useRef(false);
+  const launcher = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!enabled || offered.current) return;
+    function showAtBottom() {
+      const page = document.scrollingElement;
+      if (!page || offered.current || page.scrollTop <= 0) return;
+      if (page.scrollHeight - page.clientHeight - page.scrollTop > 24) return;
+      offered.current = true;
+      setOpen('automatic');
+    }
+    window.addEventListener('scroll', showAtBottom, { passive: true });
+    return () => window.removeEventListener('scroll', showAtBottom);
+  }, [enabled, open]);
+
+  useEffect(() => {
+    if (open === 'manual') dialog.current?.focus({ preventScroll: true });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !enabled) return;
+    function onEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (dialog.current?.contains(document.activeElement)) launcher.current?.focus();
+      setOpen(null);
+    }
+    window.addEventListener('keydown', onEscape);
+    return () => window.removeEventListener('keydown', onEscape);
+  }, [enabled, open]);
+
+  if (!enabled) return null;
+
+  return (
+    <div className="home-actions">
+      <button
+        ref={launcher}
+        className="home-actions-launcher"
+        type="button"
+        aria-label={open ? 'Cerrar opciones de Miga' : 'Abrir opciones de Miga'}
+        aria-haspopup="dialog"
+        aria-expanded={!!open}
+        aria-controls={open ? 'home-actions-dialog' : undefined}
+        onClick={() => {
+          offered.current = true;
+          setOpen(open ? null : 'manual');
+        }}
+      >
+        <span aria-hidden="true">
+          <Miga waving />
+        </span>
+      </button>
+      {open && (
+        <section
+          id="home-actions-dialog"
+          ref={dialog}
+          className="home-actions-dialog"
+          role="dialog"
+          aria-labelledby="home-actions-title"
+          tabIndex={-1}
+        >
+          <header>
+            <h2 id="home-actions-title">¡Hola! Soy Miga, tu asistente</h2>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Cerrar diálogo"
+              onClick={() => {
+                setOpen(null);
+                launcher.current?.focus();
+              }}
+            >
+              <X size={18} />
+            </button>
+          </header>
+          <p>Te ayudo a refrescar tu masa madre y a prepararla para tu próxima receta.</p>
+          <a className="secondary" href="#assistant">
+            Ir al asistente <ChevronRight size={17} />
+          </a>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -256,7 +281,12 @@ function EditCultivation({
   data,
   update,
   onClose,
-}: Pick<PageProps, 'data' | 'update'> & { onClose: () => void }) {
+  focusDate,
+}: Pick<PageProps, 'data' | 'update'> & { onClose: () => void; focusDate: boolean }) {
+  const dateField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusDate) dateField.current?.focus();
+  }, [focusDate]);
   const [initial] = useState(data.starter);
   const [error, setError] = useState('');
   const initialDate = initial.lastFedAt ? inputDate(new Date(initial.lastFedAt)) : '';
@@ -302,6 +332,7 @@ function EditCultivation({
           <input
             type="datetime-local"
             name="lastFedAt"
+            ref={dateField}
             defaultValue={initialDate}
             max={inputDate()}
           />

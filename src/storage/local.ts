@@ -1,7 +1,7 @@
-import { applyJournalChange, createData } from '../domain/starter';
+import { applyJournalChange, createData, feedingRatios, isContaminated } from '../domain/starter';
 import type { AppData, JournalChange } from '../domain/starter';
 export const STORAGE_KEY = 'miga:starter:v1';
-export interface StorageLike {
+interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 }
@@ -16,7 +16,8 @@ export function isAppData(value: unknown): value is AppData {
     value.version !== 1 ||
     !record(value.starter) ||
     !Array.isArray(value.feedings) ||
-    !Array.isArray(value.observations)
+    !Array.isArray(value.observations) ||
+    (value.contamination !== undefined && !isContaminated(value.contamination))
   )
     return false;
   const s = value.starter;
@@ -52,7 +53,7 @@ export function isAppData(value: unknown): value is AppData {
         typeof f.id === 'string' &&
         date(f.fedAt) &&
         typeof f.ratio === 'number' &&
-        [1, 2, 3, 5].includes(f.ratio) &&
+        feedingRatios.some((ratio) => ratio === f.ratio) &&
         [f.starterG, f.waterG, f.flourG].every((n) => finite(n) && n > 0) &&
         finite(f.temperature) &&
         (f.storage === 'fridge' || f.storage === 'room') &&
@@ -74,9 +75,7 @@ export function isAppData(value: unknown): value is AppData {
         ) &&
         typeof o.activity === 'string' &&
         ['unknown', 'quiet', 'rising', 'peak', 'fallen'].includes(o.activity) &&
-        (o.rise === null || (finite(o.rise) && o.rise >= 0)) &&
         typeof o.bubbles === 'boolean' &&
-        typeof o.aroma === 'string' &&
         (o.peakHours === null || (finite(o.peakHours) && o.peakHours >= 0)) &&
         typeof o.notes === 'string',
     )
@@ -106,7 +105,20 @@ function readJournal(storage: StorageLike): StoredJournal {
     raw = storage.getItem(STORAGE_KEY);
     if (raw === null) return { kind: 'readable', raw, data: createData() };
     const data: unknown = JSON.parse(raw);
-    if (isAppData(data)) return { kind: 'readable', raw, data };
+    if (isAppData(data)) {
+      const observations = data.observations.map(
+        ({ id, observedAt, safety, activity, bubbles, peakHours, notes }) => ({
+          id,
+          observedAt,
+          safety,
+          activity,
+          bubbles,
+          peakHours,
+          notes,
+        }),
+      );
+      return { kind: 'readable', raw, data: { ...data, observations } };
+    }
   } catch {
     // Preserve the original if it could be read but not decoded.
   }
@@ -146,7 +158,9 @@ export function createJournal(storage: StorageLike) {
     if (stored.kind === 'unreadable' || (pending && stored.raw !== base) || expected !== data)
       return 'blocked';
 
-    data = applyJournalChange(data, change);
+    const next = applyJournalChange(data, change);
+    if (next === data) return 'blocked';
+    data = next;
     const result = persist(data);
     pending = result === 'memory';
     return result;

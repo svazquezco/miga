@@ -198,8 +198,8 @@ export function Guide({ navigate }: PageProps) {
                       Continúa cuando veas fermentación y maduración. Estos intervalos seleccionan
                       una estrategia inicial; no son plazos garantizados.
                     </Notice>
-                    <button className="primary" onClick={() => navigate('assistant')}>
-                      Aplicar esta guía con Miga
+                    <button className="primary" onClick={() => navigate('calculator')}>
+                      Calcular cantidades para mi receta
                     </button>
                   </>
                 ) : (
@@ -443,7 +443,7 @@ export function Guide({ navigate }: PageProps) {
               ]}
             />
             <button className="primary" onClick={() => navigate('calculator')}>
-              Calcular mi último refresco
+              Calcular cantidades para mi receta
             </button>
           </article>
         </div>

@@ -35,6 +35,14 @@ export function ProtocolTiming({
   protocol: Protocol;
   temperature?: number;
 }) {
+  if (protocol.recoveryTiming) {
+    return (
+      <section className="protocol-timing" aria-label="Tiempo de reactivación">
+        <h3>¿Cuándo volverá a crecer?</h3>
+        <p>{protocol.recoveryTiming}</p>
+      </section>
+    );
+  }
   const reference = peakTimeReferences.find((item) => item.ratio === protocol.ratio);
   if (!reference) return null;
   return (
@@ -58,21 +66,16 @@ export function ProtocolTiming({
         </div>
       </dl>
       {temperature !== undefined && (
-        <p className="temperature-context">
-          Has indicado {temperature} °C. El ejemplo no calcula una hora exacta para tu cultivo.
-        </p>
+        <p>Has indicado {temperature} °C. El ejemplo no calcula una hora exacta para tu cultivo.</p>
       )}
       <p>
-        Si está en recuperación, el primer ciclo puede tardar más. Si supera estas horas y sigue
-        creciendo, deja que madure. Si responde pero sigue lenta, repite{' '}
-        <strong>
-          1:{protocol.ratio}:{protocol.ratio}
-        </strong>{' '}
-        al madurar y comprueba si mejora en los siguientes ciclos.
+        El primer refresco tras la nevera puede tardar más. Si la masa sigue subiendo, espera. Si ya
+        ha madurado pero sigue lenta, puedes darle otro refresco <strong>1:1:1</strong> o{' '}
+        <strong>1:2:2</strong>. Con 1:2:2 suele tardar más en llegar al pico.
       </p>
       <p>
-        Si no ves fermentación, revisa la temperatura y sigue observando antes de repetir. Las horas
-        orientan; por sí solas no indican que esté lista ni que necesite otro refresco.
+        Si aún no ves burbujas ni subida, revisa la temperatura y sigue observando antes de
+        refrescar de nuevo.
       </p>
     </section>
   );
