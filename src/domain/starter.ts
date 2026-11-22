@@ -3,8 +3,10 @@ export type FeedingPace = 'usual' | 'longer';
 export type Goal = 'maintain' | 'bake';
 export type Activity = 'unknown' | 'quiet' | 'rising' | 'peak' | 'fallen';
 export type Safety = 'unknown' | 'healthy' | 'hooch' | 'contamination' | 'mold' | 'pink' | 'rotten';
-export type Ratio = 1 | 2 | 3 | 5;
-export interface Starter {
+export const feedingRatios = [1, 2, 3, 4, 5] as const;
+export type Ratio = (typeof feedingRatios)[number];
+type Contamination = Extract<Safety, 'contamination' | 'mold' | 'pink' | 'rotten'>;
+interface Starter {
   id: string;
   name: string;
   hydration: number;
@@ -32,9 +34,7 @@ export interface Observation {
   observedAt: string;
   safety: Safety;
   activity: Activity;
-  rise: number | null;
   bubbles: boolean;
-  aroma: string;
   peakHours: number | null;
   notes: string;
 }
@@ -45,6 +45,7 @@ export interface AppData {
   version: 1;
   starter: Starter;
   recovery?: Recovery;
+  contamination?: Contamination;
   feedings: Feeding[];
   observations: Observation[];
 }
@@ -56,6 +57,8 @@ export type JournalChange =
   | { type: 'feeding'; feeding: Feeding; recoveryStage?: 'start' | 'feed' }
   | { type: 'observation'; observation: Observation; checkedFeedingId?: string }
   | { type: 'recovery'; recovery?: Recovery; checkedFeedingId?: string }
+  | { type: 'revise-feeding'; original: Feeding; feeding?: Omit<Feeding, 'bakingCheck'> }
+  | { type: 'revise-observation'; original: Observation; observation?: Observation }
   | { type: 'reset' };
 
 export function applyJournalChange(data: AppData, change: JournalChange): AppData {
@@ -78,6 +81,27 @@ export function applyJournalChange(data: AppData, change: JournalChange): AppDat
         observations: [change.observation, ...data.observations].sort(
           (a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt),
         ),
+      };
+    }
+    case 'revise-feeding':
+      return reviseFeeding(data, change.original, change.feeding);
+    case 'revise-observation': {
+      const { original, observation } = change;
+      const stored = data.observations.find((entry) => entry.id === original.id);
+      if (!sameEntry(stored, original)) return data;
+      return {
+        ...data,
+        contamination:
+          data.contamination ?? (isContaminated(original.safety) ? original.safety : undefined),
+        observations: data.observations
+          .flatMap((entry) =>
+            entry.id !== original.id
+              ? [entry]
+              : observation
+                ? [{ ...observation, id: original.id }]
+                : [],
+          )
+          .sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt)),
       };
     }
     case 'reset':
@@ -110,14 +134,97 @@ export function applyJournalChange(data: AppData, change: JournalChange): AppDat
   }
 }
 
+function sameEntry(stored: Feeding | Observation | undefined, original: Feeding | Observation) {
+  return stored === original || JSON.stringify(stored) === JSON.stringify(original);
+}
+
+function reviseFeeding(data: AppData, original: Feeding, changes?: Omit<Feeding, 'bakingCheck'>) {
+  const stored = data.feedings.find((feeding) => feeding.id === original.id);
+  if (!sameEntry(stored, original)) return data;
+
+  const timingChanged =
+    changes &&
+    (changes.fedAt !== original.fedAt ||
+      changes.starterG !== original.starterG ||
+      changes.waterG !== original.waterG ||
+      changes.flourG !== original.flourG);
+  let replacement: Feeding | undefined;
+  if (changes) {
+    const { bakingCheck } = original;
+    replacement = { ...changes, id: original.id };
+    if (bakingCheck && changes.storage === 'room') {
+      const active =
+        Date.parse(bakingCheck.at) - Date.parse(original.fedAt) <
+        firstStarterCheckHours * 3_600_000;
+      replacement.bakingCheck = timingChanged
+        ? {
+            ...bakingCheck,
+            at: bakingCheckAt(changes.fedAt, measuredFeedingRatio(changes), active),
+          }
+        : bakingCheck;
+    }
+  }
+  const feedings = data.feedings
+    .flatMap((feeding) =>
+      feeding.id !== original.id ? [feeding] : replacement ? [replacement] : [],
+    )
+    .sort((a, b) => Date.parse(b.fedAt) - Date.parse(a.fedAt));
+
+  const previous = latestFeeding(data);
+  const next = feedings[0];
+  const updatesLatest =
+    previous &&
+    (previous.id === original.id ||
+      (replacement && Date.parse(replacement.fedAt) > Date.parse(previous.fedAt)));
+  let starter = data.starter;
+  if (updatesLatest) {
+    starter = {
+      ...starter,
+      lastFedAt: next?.fedAt ?? null,
+      temperature: next?.temperature ?? starter.temperature,
+    };
+    if (starter.storageChangedAt === previous.fedAt) {
+      starter = {
+        ...starter,
+        storage: next?.storage ?? starter.storage,
+        storageChangedAt: next?.fedAt,
+      };
+    }
+    if (next && next.id !== previous.id && next.id !== replacement?.id) {
+      feedings[0] = { ...next, bakingCheck: undefined };
+    }
+  }
+
+  let recovery = data.recovery;
+  const changedCycle =
+    !changes ||
+    timingChanged ||
+    changes.storage !== original.storage ||
+    changes.temperature !== original.temperature ||
+    changes.ratio !== original.ratio;
+  if (changedCycle && recovery && recovery.stage !== 'start') {
+    const trackedCount = recovery.stage === 'observe' && recovery.confirmations === 1 ? 2 : 1;
+    if (
+      (recovery.stage === 'observe' && recovery.feedingId === original.id) ||
+      data.feedings.slice(0, trackedCount).some((feeding) => feeding.id === original.id) ||
+      feedings.slice(0, trackedCount).some((feeding) => feeding.id === original.id)
+    ) {
+      recovery = { goal: recovery.goal, stage: 'feed', confirmations: 0 };
+    }
+  }
+
+  return { ...data, starter, recovery, feedings };
+}
+
 export function feedingBlock(data: AppData) {
-  const contamination = data.observations.find((entry) => isContaminated(entry.safety))?.safety;
+  const contamination =
+    data.contamination ?? data.observations.find((entry) => isContaminated(entry.safety))?.safety;
   return { contamination, blocked: Boolean(contamination) || data.starter.hydration !== 100 };
 }
 
 export interface DecisionInput {
   storage: StoragePlace;
-  elapsedHours: number;
+  elapsedHours: number | null;
   safety: Safety;
   goal: Goal;
   activity: Activity;
@@ -131,6 +238,7 @@ export interface Protocol {
   ratio: Ratio;
   cycles: string;
   duration: string;
+  recoveryTiming?: string;
   description: string;
   steps: string[];
 }
@@ -160,25 +268,36 @@ export const bakingGrowthGuidance: Record<Activity, { title: string; text: strin
 };
 // Baking trial at about 26 °C: https://www.kingarthurbaking.com/blog/2025/03/13/sourdough-feeding-ratios
 export const peakTimeReferences = [
-  { ratio: 1, peak: 'Unas 4–6 h', doubling: 'En el ejemplo había duplicado alrededor de las 4 h.' },
+  { ratio: 1, peak: 'Unas 4–6 h', doubling: 'Duplicó su volumen en unas 4 h.' },
   {
     ratio: 2,
     peak: 'Alrededor de 8 h',
-    doubling:
-      'En el ejemplo estaba cerca de duplicar a las 4 h; a las 8 h había duplicado y estaba en el pico.',
+    doubling: 'A las 4 h, casi había duplicado su volumen. A las 8 h, ya lo había duplicado.',
   },
 ] as const;
 
-// Side-by-side observations at about 24 °C: https://thatsourdoughgal.com/the-ultimate-guide-to-sourdough-starter-feeding-ratios/
-export const peakTimeAt24C = {
-  1: { label: '4–6 h', checkAfterHours: 4 },
-  2: { label: '5–6 h', checkAfterHours: 5 },
-  3: { label: '6½–9 h', checkAfterHours: 6.5 },
-  5: { label: 'unas 10 h', checkAfterHours: 10 },
-} satisfies Record<Ratio, { label: string; checkAfterHours: number }>;
+export const starterActivityLevels = ['active', 'sluggish', 'weak'] as const;
+export type StarterActivityLevel = (typeof starterActivityLevels)[number];
+export const starterActivityLabels = {
+  active: 'Activa',
+  sluggish: 'Poco activa',
+  weak: 'Muy debilitada',
+} satisfies Record<StarterActivityLevel, string>;
+
+// Product reference ranges for mature starters at about 24–25 °C.
+export const peakTimeAt24To25C = {
+  1: { active: [4, 6], sluggish: [6, 12], weak: [12, 24] },
+  2: { active: [6, 9], sluggish: [8, 14], weak: [14, 28] },
+  3: { active: [7, 11], sluggish: [10, 18], weak: [16, 30] },
+  4: { active: [9, 13], sluggish: [12, 20], weak: [18, 36] },
+  5: { active: [10, 15], sluggish: [14, 24], weak: [20, 40] },
+} satisfies Record<Ratio, Record<StarterActivityLevel, [number, number]>>;
+
+export const firstStarterCheckHours = 12;
 
 export function bakingCheckAt(fedAt: string, ratio: Ratio | undefined, active: boolean): string {
-  const hours = active && ratio !== undefined ? peakTimeAt24C[ratio].checkAfterHours : 12;
+  const hours =
+    active && ratio !== undefined ? peakTimeAt24To25C[ratio].active[0] : firstStarterCheckHours;
   return new Date(Date.parse(fedAt) + hours * 3_600_000).toISOString();
 }
 
@@ -186,15 +305,14 @@ export function measuredFeedingRatio(feeding: Pick<Feeding, 'starterG' | 'waterG
   const { starterG, waterG, flourG } = feeding;
   if (![starterG, waterG, flourG].every((amount) => Number.isFinite(amount) && amount > 0))
     return undefined;
-  const ratios = [1, 2, 3, 5] as const;
-  const exact = ratios.find(
+  const exact = feedingRatios.find(
     (ratio) =>
       Math.abs(waterG - starterG * ratio) < 1e-8 && Math.abs(flourG - starterG * ratio) < 1e-8,
   );
   if (exact !== undefined) return exact;
   const total = starterG + waterG + flourG;
   if (!Number.isSafeInteger(Math.round(total * 10))) return undefined;
-  return ratios.find((ratio) => {
+  return feedingRatios.find((ratio) => {
     const amounts = displayedAmounts(total, 0, ratio);
     return amounts.starter === starterG && amounts.water === waterG && amounts.flour === flourG;
   });
@@ -230,94 +348,54 @@ export function latestBakingFeeding(data: AppData) {
 export const fridgeProtocols: Protocol[] = [
   {
     id: 'fridge-3',
-    band: '0–3 días',
+    band: 'Hasta 3 días',
     title: 'Un refresco para despertar',
-    ratio: 2,
-    cycles: '1 refresco orientativo',
-    duration: '6–12 h orientativas',
+    ratio: 1,
+    cycles: 'Reactivación con 1 refresco (orientativo)',
+    duration: 'Según su actividad',
     description:
       'Si ha pasado pocos días en la nevera, dale un refresco a temperatura ambiente y observa si vuelve a subir y formar burbujas.',
     steps: [
       'Comprueba el aspecto y el olor.',
-      'Mezcla 20 g de cultivo, 40 g de agua y 40 g de harina en un tarro limpio.',
+      'Mezcla 20 g de cultivo, 20 g de agua y 20 g de harina en un tarro limpio.',
       'Marca el nivel, cubre sin cerrar herméticamente y deja fermentar.',
-      'Para hornear, confirma que duplica y alcanza el pico con vigor.',
-    ],
-  },
-  {
-    id: 'fridge-7',
-    band: '4–7 días',
-    title: 'Volver a coger ritmo',
-    ratio: 2,
-    cycles: '1–2 refrescos orientativos',
-    duration: '12–24 h orientativas',
-    description: 'Es normal que necesite un poco de tiempo para recuperar su ritmo.',
-    steps: [
-      'Comprueba el aspecto y el olor.',
-      'Refresca en proporción 1:2:2 y marca el nivel inicial.',
-      'Espera actividad clara o el pico antes de volver a alimentar.',
-      'Si sigue lenta, repite 1:2:2 cuando madure y vuelve a observar.',
-    ],
-  },
-  {
-    id: 'fridge-14',
-    band: '8–14 días',
-    title: 'Despertar con paciencia',
-    ratio: 2,
-    cycles: '2–3 refrescos orientativos',
-    duration: '24–36 h orientativas',
-    description: 'El primer ciclo puede ser lento. La actividad decide cuándo continuar.',
-    steps: [
-      'Inspecciona el cultivo antes de alimentarlo.',
-      'Refresca 1:2:2 y mantén una temperatura estable.',
-      'No vuelvas a refrescar antes de observar fermentación.',
-      'Repite según maduración hasta lograr un crecimiento fuerte y repetible.',
+      'Antes de usarla en tu receta, comprueba que duplica su volumen y úsala cerca del pico.',
     ],
   },
   {
     id: 'fridge-21',
-    band: '15–21 días',
-    title: 'Recuperar su fuerza',
+    band: 'De 4 a 21 días',
+    title: 'Volver a coger ritmo',
     ratio: 2,
-    cycles: '2–4 refrescos orientativos',
-    duration: '24–48 h orientativas',
-    description: 'Dale un entorno templado y observa sin prisas.',
-    steps: [
-      'Inspecciona y pasa 20 g a un tarro limpio.',
-      'Añade 40 g de agua y 40 g de harina. Puedes sustituir parte de la harina por integral o centeno.',
-      'Espera actividad; el primer ciclo podría tardar hasta 24 h.',
-      'Haz los siguientes refrescos cuando madure, hasta recuperar fuerza.',
-    ],
-  },
-  {
-    id: 'fridge-30',
-    band: '22–30 días',
-    title: 'Una recuperación suave',
-    ratio: 2,
-    cycles: 'Según su respuesta',
-    duration: '2–4 días o más',
+    cycles: 'Uno o varios refrescos según su respuesta',
+    duration: 'Según su actividad',
     description:
-      'Empieza con una muestra pequeña y alimento nuevo en proporción 1:2:2. Observa su respuesta antes de repetir.',
+      'Empieza con un refresco a temperatura ambiente. Si ya crece con fuerza de forma regular, puede bastar con uno.',
+    recoveryTiming:
+      'El primer refresco puede tardar en mostrar burbujas o en subir. Si sigue creciendo, espera. Si al llegar al pico aún muestra poca actividad, vuelve a refrescar.',
     steps: [
-      'Inspecciona minuciosamente todo el cultivo.',
-      'Refresca 10–20 g de cultivo en proporción 1:2:2 a unos 24–26 °C.',
-      'Observa durante 12–24 h como primera revisión; si hay actividad, espera a que madure antes de repetir 1:2:2.',
-      'Confirma varios ciclos de crecimiento vigoroso antes de hornear.',
+      'Comprueba el aspecto y el olor.',
+      'Refresca en proporción 1:2:2 y marca el nivel inicial.',
+      'Observa si aparecen burbujas y cuánto sube antes de decidir si necesita otro refresco.',
+      'Antes de usarla en tu receta, comprueba que vuelve a crecer con fuerza y de forma regular.',
     ],
   },
   {
     id: 'fridge-long',
-    band: 'Más de 30 días',
-    title: 'Observar antes de recuperar',
+    band: '22 días o más',
+    title: 'Recuperar una muestra pequeña',
     ratio: 2,
     cycles: 'Según su respuesta',
-    duration: 'Varios días',
-    description: 'El tiempo por sí solo no confirma que esté perdida ni que sea recuperable.',
+    duration: 'Puede llevar varios días',
+    recoveryTiming:
+      'Haz una primera revisión entre las 12 y las 24 h. Busca burbujas o una subida sobre la marca. Si sigue creciendo, espera a que llegue al pico.',
+    description:
+      'Revisa todo el cultivo. Si está en buen estado, empieza con una muestra pequeña y observa cómo responde.',
     steps: [
-      'Inspecciona con cuidado. Ante contaminación, desecha todo el cultivo.',
-      'Si parece sano, refresca una muestra pequeña en proporción 1:2:2.',
-      'Observa durante varios días a temperatura estable y refresca según su respuesta.',
-      'Si no recupera suficiente actividad tras varios días, considera empezar un cultivo nuevo.',
+      'Si ves moho, tonos rosas o naranjas, o notas un olor putrefacto, desecha todo el cultivo.',
+      'Si está en buen estado, refresca 10–20 g de cultivo en proporción 1:2:2 y marca el nivel.',
+      'Comprueba que el crecimiento se repite en los siguientes refrescos antes de usarla en tu receta.',
+      'Si no recupera actividad tras varios días, considera empezar un cultivo nuevo.',
     ],
   },
 ];
@@ -409,6 +487,9 @@ export function applyFeedingPace(protocol: Protocol, pace: FeedingPace): Protoco
   };
 }
 export function explainProtocolRatio(protocol: Protocol): string {
+  if (protocol.id === 'fridge-3') {
+    return 'Si tu masa madre estaba activa antes de guardarla y sigue sana, empieza con un refresco 1:1:1.';
+  }
   if (['room-12', 'room-24'].includes(protocol.id)) {
     return protocol.ratio === 1
       ? 'Para un cultivo sano en rutina diaria, partimos de 1:1:1. Si aún está subiendo, espera a que madure antes de volver a alimentar.'
@@ -424,20 +505,20 @@ export function selectProtocol(
   if (!Number.isFinite(hours) || hours < 0) throw new Error('Invalid elapsed time');
   if (storage === 'fridge') {
     const days = Math.floor(hours / 24);
-    return fridgeProtocols[
-      days <= 3 ? 0 : days <= 7 ? 1 : days <= 14 ? 2 : days <= 21 ? 3 : days <= 30 ? 4 : 5
-    ];
+    return fridgeProtocols[days <= 3 ? 0 : days <= 21 ? 1 : 2];
   }
   return applyFeedingPace(
     roomProtocols[hours < 12 ? 0 : hours < 24 ? 1 : hours <= 48 ? 2 : hours <= 72 ? 3 : 4],
     pace,
   );
 }
-export function isContaminated(safety: Safety): boolean {
-  return ['contamination', 'mold', 'pink', 'rotten'].includes(safety);
+export function isContaminated(safety: unknown): safety is Contamination {
+  return (
+    safety === 'contamination' || safety === 'mold' || safety === 'pink' || safety === 'rotten'
+  );
 }
-export type Recommendation = {
-  kind: 'discard' | 'out-of-scope' | 'inspect' | 'wait' | 'protocol';
+type Recommendation = {
+  kind: 'discard' | 'out-of-scope' | 'inspect' | 'wait' | 'unknown-date' | 'protocol';
   title: string;
   text: string;
   protocol?: Protocol;
@@ -463,6 +544,12 @@ export function recommend(input: DecisionInput): Recommendation {
       text: 'Comprueba el aspecto y el olor antes de elegir un refresco.',
     };
   if (input.activity === 'rising') return { kind: 'wait', ...bakingGrowthGuidance.rising };
+  if (input.elapsedHours === null)
+    return {
+      kind: 'unknown-date',
+      title: 'Fecha del último refresco desconocida',
+      text: 'Indica la fecha del último refresco o registra uno nuevo.',
+    };
   const protocol = selectProtocol(input.storage, input.elapsedHours, input.feedingPace);
   const nextCondition =
     input.goal === 'maintain'
@@ -479,7 +566,7 @@ export function recommend(input: DecisionInput): Recommendation {
 export function calculate(recipe: number, reserve: number, ratio: Ratio) {
   if (
     ![recipe, reserve].every((n) => Number.isFinite(n) && n >= 0) ||
-    ![1, 2, 3, 5].includes(ratio) ||
+    !feedingRatios.includes(ratio) ||
     recipe + reserve <= 0
   )
     throw new Error('Invalid quantities');
@@ -490,6 +577,7 @@ export function calculate(recipe: number, reserve: number, ratio: Ratio) {
 // Allocate decimal remainders so displayed tenths always add to the displayed total.
 export function displayedAmounts(recipe: number, reserve: number, ratio: Ratio) {
   const raw = calculate(recipe, reserve, ratio);
+  if (!Number.isSafeInteger(Math.round(raw.total * 10))) throw new Error('Invalid total');
   const values = [raw.starter, raw.water, raw.flour].map((n) => n * 10);
   const rounded = values.map(Math.floor);
   const missing = Math.round(raw.total * 10) - rounded.reduce((sum, n) => sum + n, 0);
@@ -504,11 +592,120 @@ export function displayedAmounts(recipe: number, reserve: number, ratio: Ratio) 
     total: Math.round(raw.total * 10) / 10,
   };
 }
+export function displayedAmountsFromStarter(starter: number, ratio: Ratio) {
+  const starterTenths = Math.round(starter * 10);
+  const additionTenths = starterTenths * ratio;
+  const totalTenths = starterTenths + 2 * additionTenths;
+  if (starterTenths <= 0 || !feedingRatios.includes(ratio) || !Number.isSafeInteger(totalTenths))
+    throw new Error('Invalid initial starter quantity');
+  return {
+    starter: starterTenths / 10,
+    water: additionTenths / 10,
+    flour: additionTenths / 10,
+    total: totalTenths / 10,
+  };
+}
 export function elapsedHours(date: string, now = Date.now()): number {
   const time = Date.parse(date);
   if (!Number.isFinite(time) || time > now) throw new Error('Invalid feeding date');
   return (now - time) / 3_600_000;
 }
+const feedingMaintenanceBands = [
+  { throughHours: 72, status: 'recent' },
+  { throughHours: 168, status: 'normal' },
+  { throughHours: 336, status: 'overdue' },
+  { throughHours: 720, status: 'possibly_sluggish' },
+  { throughHours: 1440, status: 'recovery_recommended' },
+] as const;
+
+export function feedingMaintenanceStatus(lastFed: string | null, now = Date.now()) {
+  if (!lastFed || !Number.isFinite(Date.parse(lastFed))) return 'unknown';
+  const hours = elapsedHours(lastFed, now);
+  return (
+    feedingMaintenanceBands.find(({ throughHours }) => hours <= throughHours)?.status ??
+    'long_term_neglect'
+  );
+}
+
+export const feedingMaintenanceMessages = {
+  recent: {
+    title: 'Refresco reciente',
+    text: 'Si vas a hacer pan, refresca la masa madre y comprueba cómo crece.',
+  },
+  normal: {
+    title: 'Mantenimiento normal',
+    text: 'Puedes refrescarla para mantenerla o para preparar pan.',
+  },
+  overdue: {
+    title: 'Conviene refrescar',
+    text: 'Dale un refresco y observa cómo crece.',
+  },
+  possibly_sluggish: {
+    title: 'Posible pérdida de vigor',
+    text: 'Dale un refresco y observa su respuesta. Si crece lentamente, puede necesitar otro.',
+  },
+  recovery_recommended: {
+    title: 'Recuperación recomendada',
+    text: 'Si el aspecto y el aroma son normales, refresca una muestra y observa cómo responde.',
+  },
+  long_term_neglect: {
+    title: 'Mucho tiempo desde el último refresco',
+    text: 'Comprueba el aspecto y el aroma antes de intentar recuperarla.',
+  },
+  unknown: {
+    title: 'Fecha del último refresco desconocida',
+    text: 'Puedes indicar la fecha o registrar un refresco nuevo.',
+  },
+};
+
+export function observedStarterActivity(
+  data: AppData,
+  lastFed: string,
+  storage: StoragePlace,
+  now = Date.now(),
+): StarterActivityLevel | 'unknown' {
+  const feeding = latestFeeding(data);
+  if (
+    !feeding ||
+    feeding.storage !== 'room' ||
+    storage !== data.starter.storage ||
+    feeding.temperature < 24 ||
+    feeding.temperature > 25
+  )
+    return 'unknown';
+
+  const fedAt = Date.parse(feeding.fedAt);
+  if (Math.floor(Date.parse(lastFed) / 60_000) !== Math.floor(fedAt / 60_000)) return 'unknown';
+  if (storage === 'fridge' && now - fedAt > feedingMaintenanceBands[2].throughHours * 3_600_000)
+    return 'unknown';
+
+  const storageChangedAt = Date.parse(data.starter.storageChangedAt ?? '');
+  const observation = data.observations.find((entry) => {
+    const observedAt = Date.parse(entry.observedAt);
+    return (
+      observedAt > fedAt &&
+      observedAt <= now &&
+      (!Number.isFinite(storageChangedAt) || observedAt >= storageChangedAt)
+    );
+  });
+  if (
+    !observation ||
+    isContaminated(observation.safety) ||
+    (observation.activity !== 'peak' && observation.activity !== 'fallen') ||
+    !observation.bubbles ||
+    observation.peakHours === null ||
+    observation.peakHours > (Date.parse(observation.observedAt) - fedAt) / 3_600_000
+  )
+    return 'unknown';
+
+  const ratio = measuredFeedingRatio(feeding);
+  if (ratio === undefined) return 'unknown';
+  const { active, sluggish } = peakTimeAt24To25C[ratio];
+  if (observation.peakHours >= active[0] && observation.peakHours <= active[1]) return 'active';
+  if (observation.peakHours > active[1] && observation.peakHours <= sluggish[1]) return 'sluggish';
+  return 'unknown';
+}
+
 export function createData(now = new Date()): AppData {
   return {
     version: 1,

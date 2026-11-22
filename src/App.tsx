@@ -37,24 +37,26 @@ const links: { id: Page; label: string; icon: typeof HomeIcon }[] = [
   { id: 'calculator', label: 'Calculadora', icon: CalculatorIcon },
   { id: 'history', label: 'Mi historial', icon: ChartNoAxesCombined },
 ];
-const parsePage = (): Page => {
-  const raw = location.hash.slice(1).split('/')[0];
+const parsePage = (hash: string): Page => {
+  const raw = hash.slice(1).split('/')[0];
   return [...links.map((l) => l.id), 'settings'].includes(raw) ? (raw as Page) : 'home';
 };
 export default function App() {
   const [journal] = useState(() => createJournal(browserStorage));
   const [snapshot, setSnapshot] = useState(journal.snapshot);
   const { data, pending, unreadable, original, conflict } = snapshot;
-  const [page, setPage] = useState<Page>(parsePage);
   const [routeKey, setRouteKey] = useState(location.hash);
+  const page = parsePage(routeKey);
+  const recoveryCalculator = routeKey === '#calculator/recovery';
   const [menu, setMenu] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
   const [toast, setToast] = useState('');
   const [feed, setFeed] = useState<FeedRequest | null>(null);
   const [install, setInstall] = useState<InstallPrompt | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const change = () => {
-      setPage(parsePage());
       setRouteKey(location.hash);
       setMenu(false);
       window.scrollTo({ top: 0 });
@@ -62,6 +64,17 @@ export default function App() {
     window.addEventListener('hashchange', change);
     return () => window.removeEventListener('hashchange', change);
   }, []);
+  useEffect(() => {
+    if (!menu) return;
+    sidebar.current?.querySelector<HTMLAnchorElement>('nav a')?.focus();
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      setMenu(false);
+      menuButton.current?.focus();
+    }
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [menu]);
   useEffect(() => {
     const handle = (event: Event) => {
       event.preventDefault();
@@ -91,7 +104,6 @@ export default function App() {
   }, [page]);
   function navigate(next: Page) {
     if (location.hash === `#${next}`) {
-      setPage(next);
       window.scrollTo({ top: 0 });
     } else location.hash = next;
   }
@@ -135,7 +147,7 @@ export default function App() {
       <a className="skip-link" href="#main-content">
         Saltar al contenido
       </a>
-      <aside className={`sidebar ${menu ? 'open' : ''}`}>
+      <aside id="site-navigation" ref={sidebar} className={`sidebar ${menu ? 'open' : ''}`}>
         <a href="#home" className="brand" aria-label="Miga, inicio">
           <BrandMark />
           <span>
@@ -148,6 +160,7 @@ export default function App() {
             <a
               key={l.id}
               href={`#${l.id}`}
+              onClick={() => setMenu(false)}
               className={page === l.id ? 'active' : ''}
               aria-current={page === l.id ? 'page' : undefined}
             >
@@ -169,7 +182,11 @@ export default function App() {
           <span>Y un poquito de harina.</span>
         </div>
         <div className="sidebar-bottom">
-          <a href="#settings" className={page === 'settings' ? 'active' : ''}>
+          <a
+            href="#settings"
+            className={page === 'settings' ? 'active' : ''}
+            onClick={() => setMenu(false)}
+          >
             <SettingsIcon size={18} />
             Ajustes
           </a>
@@ -191,18 +208,16 @@ export default function App() {
               {page === 'settings' ? 'Mi cultivo' : links.find((l) => l.id === page)?.label}
             </strong>
           </div>
-          <div className="topbar-right">
-            <a className="avatar" href="#settings" aria-label="Configurar mi cultivo">
-              <SproutIcon />
-            </a>
-            <button
-              className="icon-button mobile-menu"
-              aria-label={menu ? 'Cerrar menú' : 'Abrir menú'}
-              onClick={() => setMenu(!menu)}
-            >
-              {menu ? <X /> : <Menu />}
-            </button>
-          </div>
+          <button
+            className="icon-button mobile-menu"
+            ref={menuButton}
+            aria-controls="site-navigation"
+            aria-expanded={menu}
+            aria-label={menu ? 'Cerrar menú' : 'Abrir menú'}
+            onClick={() => setMenu(!menu)}
+          >
+            {menu ? <X /> : <Menu />}
+          </button>
         </header>
         <main id="main-content" tabIndex={-1}>
           {unreadable && (
@@ -274,7 +289,27 @@ export default function App() {
           {page === 'home' && <Home {...props} />}
           {page === 'guide' && <Guide key={routeKey} {...props} />}
           {page === 'assistant' && <Assistant key={routeKey} {...props} onFeed={setFeed} />}
-          {page === 'calculator' && <Calculator {...props} onFeed={setFeed} />}
+          {page === 'calculator' && (
+            <>
+              {recoveryCalculator && (
+                <a className="text-button" href="#assistant">
+                  Volver al asistente
+                </a>
+              )}
+              {recoveryCalculator && data.recovery?.stage !== 'start' ? (
+                <Notice>Vuelve al asistente para consultar el estado de la recuperación.</Notice>
+              ) : (
+                <Calculator
+                  key={routeKey}
+                  {...props}
+                  initialActivity={recoveryCalculator ? 'unknown' : 'active'}
+                  onFeed={(request) =>
+                    setFeed(recoveryCalculator ? { ...request, recoveryStage: 'start' } : request)
+                  }
+                />
+              )}
+            </>
+          )}
           {page === 'history' && <History key={routeKey} {...props} />}
           {page === 'settings' && (
             <Settings
@@ -285,7 +320,7 @@ export default function App() {
             />
           )}
         </main>
-        <footer className="site-footer">
+        <footer className={page === 'settings' ? 'site-footer settings-footer' : 'site-footer'}>
           <span className="footer-brand">
             <BrandMark />
             Miga · v{version}
@@ -300,6 +335,7 @@ export default function App() {
             <a
               key={l.id}
               href={`#${l.id}`}
+              onClick={() => setMenu(false)}
               className={page === l.id ? 'active' : ''}
               aria-current={page === l.id ? 'page' : undefined}
             >
@@ -316,7 +352,14 @@ export default function App() {
             </a>
           ))}
       </nav>
-      {feed && <FeedingModal {...props} request={feed} onClose={() => setFeed(null)} />}
+      {feed && (
+        <FeedingModal
+          {...props}
+          request={feed}
+          onClose={() => setFeed(null)}
+          onSaved={feed.recoveryStage ? () => navigate('assistant') : undefined}
+        />
+      )}
       <div className={`toast ${toast ? 'visible' : ''}`} role="status">
         {toast && (
           <>
@@ -327,7 +370,4 @@ export default function App() {
       </div>
     </div>
   );
-}
-function SproutIcon() {
-  return <Leaf size={20} />;
 }

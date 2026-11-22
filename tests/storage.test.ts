@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { AppData, Safety } from '../src/domain/starter';
-import { bakingCheckAt, createData, latestBakingFeeding } from '../src/domain/starter';
+import type { AppData, Observation, Safety } from '../src/domain/starter';
+import {
+  bakingCheckAt,
+  createData,
+  feedingBlock,
+  latestBakingFeeding,
+} from '../src/domain/starter';
 import { createJournal, isAppData } from '../src/storage/local';
 const data = createData(new Date('2026-11-20T12:00:00Z'));
 const load = (storage: Parameters<typeof createJournal>[0]) => createJournal(storage).snapshot();
@@ -27,18 +32,45 @@ describe('local storage', () => {
     ).toBe('saved');
     expect(load(storage).data).toEqual({ ...data, starter: { ...data.starter, name: 'New name' } });
   });
+  it('drops retired observation fields without losing the observation', () => {
+    const observation: Observation = {
+      id: 'preview-observation',
+      observedAt: '2026-11-20T12:00:00Z',
+      safety: 'healthy',
+      activity: 'peak',
+      bubbles: true,
+      peakHours: 7,
+      notes: '',
+    };
+    let raw = JSON.stringify({
+      ...data,
+      observations: [{ ...observation, rise: 2, aroma: 'old' }],
+    });
+    const journal = createJournal({
+      getItem: () => raw,
+      setItem: (_key, value) => {
+        raw = value;
+      },
+    });
+    expect(journal.snapshot().data.observations).toEqual([observation]);
+    expect(
+      journal.update({ type: 'starter', changes: { name: 'New name' } }, journal.snapshot().data),
+    ).toBe('saved');
+    expect(JSON.parse(raw).observations).toEqual([observation]);
+  });
+
   it('restores a baking timer for the current feeding without treating an older timer as current', () => {
     const feeding: AppData['feedings'][number] = {
       id: 'baking-feeding',
       fedAt: '2026-11-20T12:00:00.000Z',
-      ratio: 3,
+      ratio: 4,
       starterG: 20,
-      waterG: 60,
-      flourG: 60,
+      waterG: 80,
+      flourG: 80,
       temperature: 24,
       storage: 'room',
       notes: '',
-      bakingCheck: { at: bakingCheckAt('2026-11-20T12:00:00.000Z', 3, true), safety: 'healthy' },
+      bakingCheck: { at: bakingCheckAt('2026-11-20T12:00:00.000Z', 4, true), safety: 'healthy' },
     };
     const stored = {
       ...data,
@@ -47,8 +79,8 @@ describe('local storage', () => {
     };
     const loaded = load({ getItem: () => JSON.stringify(stored), setItem: () => {} });
     expect(loaded.unreadable).toBe(false);
-    expect(latestBakingFeeding(loaded.data)?.bakingCheck?.at).toBe('2026-11-20T18:30:00.000Z');
-    expect(bakingCheckAt(feeding.fedAt, 3, false)).toBe('2026-11-21T00:00:00.000Z');
+    expect(latestBakingFeeding(loaded.data)?.bakingCheck?.at).toBe('2026-11-20T21:00:00.000Z');
+    expect(bakingCheckAt(feeding.fedAt, 4, false)).toBe('2026-11-21T00:00:00.000Z');
     expect(
       latestBakingFeeding({
         ...loaded.data,
@@ -106,10 +138,8 @@ describe('local storage', () => {
             observedAt: '2026-11-20T12:00:00Z',
             safety,
             activity: 'unknown',
-            rise: null,
             peakHours: null,
             bubbles: false,
-            aroma: '',
             notes: '',
           },
         ],
@@ -236,5 +266,46 @@ describe('local storage', () => {
       'blocked',
     );
     expect(journal.snapshot().data.starter.name).toBe('Other tab');
+  });
+  it('blocks stale observation edits and deletes while allowing an unchanged row from another tab', () => {
+    const original: Observation = {
+      id: 'check',
+      observedAt: '2026-11-20T12:00:00.000Z',
+      safety: 'contamination',
+      activity: 'unknown',
+      bubbles: false,
+      peakHours: null,
+      notes: '',
+    };
+    let raw = JSON.stringify({ ...data, observations: [original] });
+    let writes = 0;
+    const storage = {
+      getItem: () => raw,
+      setItem: (_key: string, value: string) => {
+        raw = value;
+        writes++;
+      },
+    };
+    const journal = createJournal(storage);
+    const updated = { ...original, notes: 'Edited elsewhere' };
+    raw = JSON.stringify({ ...data, observations: [updated] });
+    journal.refresh();
+    expect(journal.update({ type: 'revise-observation', original }, journal.snapshot().data)).toBe(
+      'blocked',
+    );
+    expect(
+      journal.update(
+        { type: 'revise-observation', original, observation: original },
+        journal.snapshot().data,
+      ),
+    ).toBe('blocked');
+    expect(writes).toBe(0);
+    expect(
+      journal.update({ type: 'revise-observation', original: updated }, journal.snapshot().data),
+    ).toBe('saved');
+    const reloaded = load(storage);
+    expect(reloaded.unreadable).toBe(false);
+    expect(reloaded.data.observations).toEqual([]);
+    expect(feedingBlock(reloaded.data).blocked).toBe(true);
   });
 });

@@ -1,13 +1,13 @@
 import type { Activity } from '../domain/starter';
 import { useId } from 'react';
-export function Miga({ waving = false, small = false }: { waving?: boolean; small?: boolean }) {
+export function Miga({ waving = false }: { waving?: boolean }) {
   const id = useId();
   return (
     <svg
       viewBox="0 0 220 200"
       role="img"
       aria-label="Miga, un pan sonriente con brazos"
-      className={`miga-character ${waving ? 'waving' : ''} ${small ? 'small' : ''}`}
+      className={`miga-character ${waving ? 'waving' : ''}`}
     >
       <defs>
         <linearGradient id={id} x2="0" y2="1">
@@ -75,13 +75,7 @@ export function Miga({ waving = false, small = false }: { waving?: boolean; smal
     </svg>
   );
 }
-export function Jar({
-  state = 'active',
-  className = '',
-}: {
-  state?: 'active' | 'quiet' | 'hooch' | 'unsafe';
-  className?: string;
-}) {
+export function Jar({ state }: { state: 'active' | 'quiet' | 'hooch' | 'unsafe' }) {
   const id = useId();
   const level = state === 'active' ? 78 : 114;
   return (
@@ -96,7 +90,7 @@ export function Jar({
           unsafe: 'Ilustración: manchas de contaminación',
         }[state]
       }
-      className={`jar-art ${className}`}
+      className="jar-art"
     >
       <defs>
         <linearGradient id={`${id}-glass`} x2="1" y2="1">

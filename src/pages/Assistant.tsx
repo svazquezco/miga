@@ -22,8 +22,20 @@ import {
   feedingBlock,
   isContaminated,
   latestBakingFeeding,
+  observedStarterActivity,
+  feedingMaintenanceMessages,
+  feedingMaintenanceStatus,
+  starterActivityLevels,
+  starterActivityLabels,
 } from '../domain/starter';
-import type { Activity, Safety, Goal, StoragePlace, FeedingPace } from '../domain/starter';
+import type {
+  Activity,
+  Safety,
+  Goal,
+  StoragePlace,
+  FeedingPace,
+  StarterActivityLevel,
+} from '../domain/starter';
 import { Calculator } from './Calculator';
 import { FeedingModal } from '../components/FeedingModal';
 import { Recovery } from '../components/Recovery';
@@ -68,17 +80,11 @@ export function Assistant({
   navigate,
   onFeed,
 }: PageProps & { onFeed: (request: FeedRequest) => void }) {
-  const initialGoal = location.hash.endsWith('/bake')
-    ? 'bake'
-    : location.hash.endsWith('/maintain')
-      ? 'maintain'
-      : null;
   const { contamination: recordedSafety, blocked } = feedingBlock(data);
   const bakingSupported = !blocked;
   const bakingFeeding = bakingSupported ? latestBakingFeeding(data) : undefined;
-  const resume = initialGoal !== 'maintain' && !data.recovery ? bakingFeeding : undefined;
-  const startingStep = initialGoal ? 'storage' : 'goal';
-  const [currentStep, setStep] = useState<Step>(resume ? 'clock' : startingStep);
+  const resume = data.recovery ? undefined : bakingFeeding;
+  const [currentStep, setStep] = useState<Step>(resume ? 'clock' : 'goal');
   const afterSafetySteps: Step[] = ['calculate', 'clock', 'activity', 'result'];
   const step =
     recordedSafety && (afterSafetySteps.includes(currentStep) || data.recovery)
@@ -101,22 +107,38 @@ export function Assistant({
   );
   const [temperature, setTemperature] = useState(String(data.starter.temperature));
   const [safety, setSafety] = useState<Safety>(resume?.bakingCheck?.safety ?? 'unknown');
-  const [goal, setGoal] = useState<Goal | null>(resume ? 'bake' : initialGoal);
+  const [goal, setGoal] = useState<Goal | null>(resume ? 'bake' : null);
   const [feedingPace, setFeedingPace] = useState<FeedingPace>('usual');
   const [activity, setActivity] = useState<Activity | null>(null);
+  const [reportedActivity, setReportedActivity] = useState<StarterActivityLevel | 'unknown'>();
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (step !== 'date' || storage !== 'fridge') return;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [step, storage]);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
-  let hours = 0;
+  let hours: number | undefined;
+  const currentTime = Math.max(Date.now(), now);
   try {
-    hours = elapsedHours(lastFed);
+    hours = elapsedHours(lastFed, currentTime);
   } catch {
     /* The date step presents validation before results. */
   }
+  const maintenance =
+    step === 'date' && storage === 'fridge' && (hours !== undefined || !lastFed)
+      ? feedingMaintenanceMessages[feedingMaintenanceStatus(lastFed, currentTime)]
+      : undefined;
+  const starterActivity =
+    step === 'date' || step === 'calculate'
+      ? (reportedActivity ?? observedStarterActivity(data, lastFed, storage, currentTime))
+      : 'unknown';
   const effectiveSafety = recordedSafety ?? safety;
   const result = recommend({
     storage,
     feedingPace,
-    elapsedHours: hours,
+    elapsedHours: hours ?? null,
     safety: effectiveSafety,
     goal: goal ?? 'maintain',
     activity: activity ?? 'unknown',
@@ -125,9 +147,10 @@ export function Assistant({
   const showCalculator =
     goal === 'bake' && bakingSupported && !isContaminated(safety) && !skipCalculation;
   const steps: Exclude<Step, 'result'>[] = [
-    ...(initialGoal
-      ? (['storage', 'safety', 'date'] as const)
-      : (['goal', 'safety', 'storage', 'date'] as const)),
+    'goal',
+    'safety',
+    'storage',
+    'date',
     ...(showCalculator ? (['calculate', 'clock'] as const) : []),
     'activity',
   ];
@@ -246,10 +269,11 @@ export function Assistant({
       });
       if (saveResult === 'blocked') return;
     }
-    setStep(startingStep);
+    setStep('goal');
     setSafety('unknown');
-    setGoal(initialGoal);
+    setGoal(null);
     setActivity(null);
+    setReportedActivity(undefined);
     setBakingSession(undefined);
     setFeedingPace('usual');
     setSaved(false);
@@ -266,9 +290,7 @@ export function Assistant({
         observedAt: new Date().toISOString(),
         safety: effectiveSafety,
         activity: result.kind === 'discard' ? 'unknown' : (activity ?? 'unknown'),
-        rise: null,
         bubbles: activity === 'peak' || activity === 'rising',
-        aroma: effectiveSafety === 'rotten' ? 'Putrefacto' : '',
         peakHours: null,
         notes: 'Observación registrada con Miga.',
       },
@@ -294,6 +316,7 @@ export function Assistant({
           setTemperature(String(data.starter.temperature));
           setBakingSession(undefined);
           setActivity(null);
+          setReportedActivity('active');
           setSkipCalculation(false);
           setSaved(false);
           setError('');
@@ -371,7 +394,10 @@ export function Assistant({
                   <button
                     className={`choice-card ${storage === 'fridge' ? 'selected' : ''}`}
                     aria-pressed={storage === 'fridge'}
-                    onClick={() => setStorage('fridge')}
+                    onClick={() => {
+                      setStorage('fridge');
+                      setReportedActivity(undefined);
+                    }}
                   >
                     <Snowflake size={32} />
                     <strong>En la nevera</strong>
@@ -381,7 +407,10 @@ export function Assistant({
                   <button
                     className={`choice-card ${storage === 'room' ? 'selected' : ''}`}
                     aria-pressed={storage === 'room'}
-                    onClick={() => setStorage('room')}
+                    onClick={() => {
+                      setStorage('room');
+                      setReportedActivity(undefined);
+                    }}
                   >
                     <Sun size={32} />
                     <strong>A temperatura ambiente</strong>
@@ -398,7 +427,10 @@ export function Assistant({
                       type="datetime-local"
                       value={lastFed}
                       max={inputDate()}
-                      onChange={(e) => setLastFed(e.target.value)}
+                      onChange={(e) => {
+                        setLastFed(e.target.value);
+                        setReportedActivity(undefined);
+                      }}
                       aria-describedby="last-feeding-hint"
                     />
                     <small id="last-feeding-hint">
@@ -423,7 +455,32 @@ export function Assistant({
                     Para reactivar, unos 24–26 °C como referencia. No calientes el tarro
                     directamente: busca un lugar estable.
                   </Notice>
-                  {storage === 'room' && lastFed && hours < 24 && (
+                  {maintenance && (
+                    <Notice>
+                      <strong>{maintenance.title}</strong>
+                      <p>{maintenance.text}</p>
+                    </Notice>
+                  )}
+                  {goal === 'bake' && bakingSupported && (
+                    <label>
+                      ¿Cómo ha respondido al último refresco?
+                      <select
+                        value={starterActivity}
+                        onChange={(e) =>
+                          setReportedActivity(e.target.value as StarterActivityLevel | 'unknown')
+                        }
+                      >
+                        <option value="unknown">Sin confirmar</option>
+                        {starterActivityLevels.map((level) => (
+                          <option key={level} value={level}>
+                            {starterActivityLabels[level]}
+                          </option>
+                        ))}
+                      </select>
+                      <small>Si aún no has observado su crecimiento, deja «Sin confirmar».</small>
+                    </label>
+                  )}
+                  {storage === 'room' && hours !== undefined && hours < 24 && (
                     <FeedingPaceChoice value={feedingPace} onChange={setFeedingPace} />
                   )}
                 </div>
@@ -497,18 +554,6 @@ export function Assistant({
                 <>
                   <div className="choice-grid two">
                     <button
-                      className={`choice-card ${goal === 'maintain' ? 'selected' : ''}`}
-                      aria-pressed={goal === 'maintain'}
-                      onClick={() => {
-                        setGoal('maintain');
-                        setError('');
-                      }}
-                    >
-                      <Sprout size={32} />
-                      <strong>Cuidarla y guardarla</strong>
-                      <span>No voy a hacer pan próximamente.</span>
-                    </button>
-                    <button
                       className={`choice-card ${goal === 'bake' ? 'selected' : ''}`}
                       aria-pressed={goal === 'bake'}
                       onClick={() => {
@@ -521,6 +566,18 @@ export function Assistant({
                       <strong>Prepararla para hacer pan</strong>
                       <span>Quiero recuperar y comprobar su fuerza.</span>
                     </button>
+                    <button
+                      className={`choice-card ${goal === 'maintain' ? 'selected' : ''}`}
+                      aria-pressed={goal === 'maintain'}
+                      onClick={() => {
+                        setGoal('maintain');
+                        setError('');
+                      }}
+                    >
+                      <Sprout size={32} />
+                      <strong>Cuidarla y guardarla</strong>
+                      <span>No voy a hacer pan próximamente.</span>
+                    </button>
                   </div>
                 </>
               )}
@@ -531,6 +588,7 @@ export function Assistant({
                   notify={notify}
                   navigate={navigate}
                   onFeed={setBakingRequest}
+                  initialActivity={starterActivity}
                   embedded
                 />
               )}
@@ -639,9 +697,7 @@ export function Assistant({
                       ? 'Ver mi siguiente paso'
                       : step === 'clock'
                         ? 'Comprobar crecimiento'
-                        : step === 'storage' && stepIndex === 0
-                          ? 'Vamos allá'
-                          : 'Continuar'}
+                        : 'Continuar'}
                   </button>
                 )}
               </div>
@@ -728,7 +784,7 @@ export function Assistant({
                 </>
               )}
               <button
-                className="text-button save-observation"
+                className="text-button"
                 disabled={saved || (!lastFed && result.kind !== 'discard')}
                 onClick={saveObservation}
               >
@@ -769,6 +825,7 @@ export function Assistant({
             setTemperature(String(feeding.temperature));
             setSafety(feeding.bakingCheck?.safety ?? 'unknown');
             setActivity(null);
+            setReportedActivity(undefined);
             setSaved(false);
             setError('');
             setStep('clock');
