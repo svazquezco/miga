@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0](https://github.com/svazquezco/miga/compare/v0.2.0...v0.3.0) (2026-11-22)
+
+
+### Features
+
+* guide starter care and baking with Miga ([aac9fc8](https://github.com/svazquezco/miga/commit/aac9fc8b3d3290abc9d4749ce3e4e2e8681239f0))
+* guide starter care and baking with Miga ([4f35dd0](https://github.com/svazquezco/miga/commit/4f35dd0e4536b0dad9aa75eeec2e4df5cd26a566))
+* refine starter care and the feeding journal ([a808d08](https://github.com/svazquezco/miga/commit/a808d08625467de160f4304b41775e5c11af0cd8))
+* refine starter care and the feeding journal ([5916ec3](https://github.com/svazquezco/miga/commit/5916ec374c56557a1a62a727ee8e08326cefccc2))
+
+
+### Bug Fixes
+
+* align assistant guidance with recorded feedings ([566ff4c](https://github.com/svazquezco/miga/commit/566ff4cfa63ceeb35227355d28071b05e41511c3))
+* align assistant guidance with recorded feedings ([409d18b](https://github.com/svazquezco/miga/commit/409d18b0e13d3d013f4527c61e7b3c5d722bce37))
+* protect the local journal across tabs ([b380e44](https://github.com/svazquezco/miga/commit/b380e44d018c95cce69def1c1e03bbbb613f9f9c))
+* protect the local journal across tabs ([02e558d](https://github.com/svazquezco/miga/commit/02e558d5245dbaa5ef6c6939128fee8b3542a909))
+
 ## [0.2.0](https://github.com/svazquezco/miga/compare/v0.1.0...v0.2.0) (2026-11-21)
 
 
